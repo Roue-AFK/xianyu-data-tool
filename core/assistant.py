@@ -555,7 +555,7 @@ class AIAssistant:
         # 如果有主窗口引用，直接设置并触发
         if self.main_window:
             self.main_window.nav_keyword.setText(keyword)
-            self.main_window.nav_count.setValue(count)
+            self.main_window.nav_count.setText(str(count))
             return f"""🚀 **准备采集「{keyword}」**
 
 | 参数 | 值 |

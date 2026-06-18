@@ -619,12 +619,14 @@ class MainWindow(QMainWindow):
         self.nav_keyword.returnPressed.connect(self._on_start)
         nl.addWidget(self.nav_keyword)
 
-        self.nav_count = NoWheelSpinBox()
-        self.nav_count.setRange(5, 100)
-        self.nav_count.setValue(30)
-        self.nav_count.setSuffix(" 条")
-        self.nav_count.setFixedWidth(80)
+        count_label = QLabel("数量")
+        count_label.setStyleSheet(f"color:{C.text_dim}; font-size:11px; border:none; background:transparent; margin-right:2px;")
+        nl.addWidget(count_label)
+        self.nav_count = QLineEdit("30")
+        self.nav_count.setPlaceholderText("条数")
+        self.nav_count.setFixedWidth(52)
         self.nav_count.setFixedHeight(36)
+        self.nav_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
         nl.addWidget(self.nav_count)
 
         research_btn = QPushButton("🔍 AI调研")
@@ -691,7 +693,8 @@ class MainWindow(QMainWindow):
         sr.addWidget(self.card_total)
         self.card_tasks = StatCard("📋", "采集任务数", "0")
         sr.addWidget(self.card_tasks)
-        self.card_avg_price = StatCard("💰", "平均价格", "¥0")
+        self.card_avg_price = StatCard("💰", "平均价格(按类型)", "¥0")
+        self.card_avg_price.setToolTip("鼠标悬停查看各类型均价")
         sr.addWidget(self.card_avg_price)
         self.card_hot_word = StatCard("🔥", "热门关键词", "-")
         sr.addWidget(self.card_hot_word)
@@ -735,8 +738,34 @@ class MainWindow(QMainWindow):
         tasks = self.db.get_tasks(limit=100)
         self.card_tasks.value_label.setText(str(len(tasks)))
         if tasks:
-            s = self.db.get_price_stats(tasks[0]["id"])
-            self.card_avg_price.value_label.setText(f"¥{(s.get('avg_price',0) or 0):.0f}")
+            # 按关键词分类计算平均价格
+            keyword_prices = {}  # {keyword: [price1, price2, ...]}
+            for t in tasks:
+                if t.get("status") != "finished":
+                    continue
+                kw = t.get("keyword", "")
+                if not kw:
+                    continue
+                stats = self.db.get_price_stats(t["id"])
+                avg = stats.get("avg_price", 0) or 0
+                cnt = stats.get("count", 0) or 0
+                if cnt > 0 and avg > 0:
+                    keyword_prices[kw] = (avg, cnt)
+
+            if keyword_prices:
+                # 显示第一个关键词的均价，多关键词时显示"按类型"
+                top_kw = max(keyword_prices, key=lambda k: keyword_prices[k][1])
+                top_avg = keyword_prices[top_kw][0]
+                if len(keyword_prices) == 1:
+                    self.card_avg_price.value_label.setText(f"¥{top_avg:.0f}")
+                else:
+                    self.card_avg_price.value_label.setText(f"¥{top_avg:.0f}")
+                    self.card_avg_price.setToolTip(
+                        "\n".join([f"{kw}: ¥{v[0]:.0f} ({v[1]}条)" for kw, v in sorted(keyword_prices.items(), key=lambda x: -x[1][1])])
+                    )
+            else:
+                self.card_avg_price.value_label.setText("¥0")
+
             kc = {}
             for t in tasks:
                 kw = t.get("keyword", "")
@@ -981,75 +1010,185 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.log_text)
         return w
 
-    # ===== AI 对话 =====
+    # ===== AI 对话（v8.0 重构：自由对话为主，模板选择为辅助）=====
 
     def _chat_tab(self):
         w = QWidget()
         w.setStyleSheet(f"background:{C.bg};")
-        ml = QHBoxLayout(w)
-        ml.setSpacing(0)
-        ml.setContentsMargins(0, 0, 0, 0)
+        vl = QVBoxLayout(w)
+        vl.setSpacing(6)
+        vl.setContentsMargins(14, 8, 14, 8)
 
-        # 左侧场景面板
-        lp = QFrame()
-        lp.setFixedWidth(180)
-        lp.setStyleSheet(f"background:{C.card}; border-right:1px solid {C.border};")
-        ll = QVBoxLayout(lp)
-        ll.setContentsMargins(10, 12, 10, 12)
+        # 顶部：模板选择栏（紧凑一行）
+        top_bar = QFrame()
+        top_bar.setStyleSheet(f"background:{C.card}; border:1px solid {C.border}; border-radius:10px;")
+        top_bar.setFixedHeight(44)
+        tbh = QHBoxLayout(top_bar)
+        tbh.setContentsMargins(14, 0, 10, 0)
+        tbh.setSpacing(8)
 
-        ll.addWidget(QLabel("📋 场景模板"))
-        desc = QLabel("选择一个场景")
-        desc.setStyleSheet(f"font-size:11px; color:{C.text_muted}; background:transparent;")
-        ll.addWidget(desc)
+        tbh.addWidget(QLabel("📋 模板"))
+        self.chat_scene_combo = NoWheelComboBox()
+        self.chat_scene_combo.setFixedWidth(140)
+        self.chat_scene_combo.setFixedHeight(30)
+        self.chat_scene_combo.addItem("💡 自由对话", "自由对话")
+        self.chat_scene_combo.currentIndexChanged.connect(self._on_chat_scene_changed)
+        tbh.addWidget(self.chat_scene_combo)
 
-        self.scene_list = QListWidget()
-        for name, info in AIAssistant.SCENARIOS.items():
-            item = QListWidgetItem(f"{info['icon']} {name}")
-            item.setData(Qt.ItemDataRole.UserRole, name)
-            self.scene_list.addItem(item)
-        self.scene_list.clicked.connect(self._on_scene_selected)
-        ll.addWidget(self.scene_list)
+        tbh.addSpacing(4)
 
-        clear_btn = QPushButton("🗑 清空对话")
+        tbh.addWidget(QLabel("类型"))
+        self.chat_type_combo = NoWheelComboBox()
+        self.chat_type_combo.setFixedWidth(140)
+        self.chat_type_combo.setFixedHeight(30)
+        tbh.addWidget(self.chat_type_combo)
+
+        self.chat_template_btn = QPushButton("▶ 使用模板")
+        self.chat_template_btn.setFixedHeight(30)
+        self.chat_template_btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.purple}; color:white; font-weight:bold; border:none; padding:4px 14px; font-size:11px; }}
+            QPushButton:hover {{ background:#5B21B6; }}
+        """)
+        self.chat_template_btn.clicked.connect(self._on_use_template)
+        tbh.addWidget(self.chat_template_btn)
+
+        tbh.addStretch()
+        clear_btn = QPushButton("🗑 清空")
+        clear_btn.setFixedHeight(30)
         clear_btn.clicked.connect(self._on_clear_chat)
-        ll.addWidget(clear_btn)
-        ml.addWidget(lp)
+        tbh.addWidget(clear_btn)
 
-        # 右侧对话区
-        rp = QFrame()
-        rp.setStyleSheet(f"background:{C.bg};")
-        rl = QVBoxLayout(rp)
-        rl.setSpacing(8)
-        rl.setContentsMargins(14, 10, 14, 10)
+        vl.addWidget(top_bar)
 
+        # 主对话区（大面积）
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
         self.chat_display.setFont(QFont("Microsoft YaHei", 11))
-        self.chat_display.setStyleSheet(f"QTextEdit {{ background:{C.card}; color:{C.text}; border:1px solid {C.border}; border-radius:10px; padding:14px; line-height:1.7; }}")
-        self.chat_display.setPlaceholderText("👋 你好！我是闲鱼运营助手。\n\n选择左侧场景模板或直接输入问题开始对话。\n\n我可以帮你：运营策略/文案优化/定价分析/选品建议/客户沟通/数据分析\n\n💡 我还能帮你操作软件：\n- 说「采集蓝牙耳机」我会引导你开始采集\n- 说「导出数据」我会帮你导出Excel\n- 说「分析价格」我会生成价格报告")
-        rl.addWidget(self.chat_display)
+        self.chat_display.setStyleSheet(f"QTextEdit {{ background:{C.card}; color:{C.text}; border:1px solid {C.border}; border-radius:10px; padding:16px; line-height:1.7; }}")
+        self.chat_display.setPlaceholderText(
+            "👋 你好！我是闲鱼运营助手，直接输入问题开始对话。\n\n"
+            "💬 自由对话：输入任何问题，我会帮你解答\n"
+            "📋 模板对话：顶部选择场景和类型，点击「使用模板」一键生成\n\n"
+            "我可以帮你：\n"
+            "• 运营策略 / 文案优化 / 定价分析 / 选品建议 / 客户沟通\n"
+            "• 数据概览 / 价格分析 / 标题趋势 / 搜索建议\n"
+            "• 触发采集 / 导出数据 / 生成报告 / 市场调研"
+        )
+        vl.addWidget(self.chat_display)
 
+        # 底部输入栏
         ir = QHBoxLayout()
         ir.setSpacing(8)
         self.chat_input = QLineEdit()
-        self.chat_input.setPlaceholderText("输入问题，如：蓝牙耳机怎么定价？或：帮我采集数据")
-        self.chat_input.setFixedHeight(40)
+        self.chat_input.setPlaceholderText("输入问题，如：蓝牙耳机怎么定价？或：帮我采集蓝牙耳机")
+        self.chat_input.setFixedHeight(42)
         self.chat_input.returnPressed.connect(self._on_send_message)
         ir.addWidget(self.chat_input)
         send_btn = QPushButton("发送 📤")
-        send_btn.setFixedHeight(40)
+        send_btn.setFixedHeight(42)
+        send_btn.setFixedWidth(90)
         send_btn.setStyleSheet(f"QPushButton {{ background:{C.primary}; color:white; font-weight:bold; border:none; }} QPushButton:hover {{ background:{C.primary_hover}; }}")
         send_btn.clicked.connect(self._on_send_message)
         ir.addWidget(send_btn)
-        rl.addLayout(ir)
+        vl.addLayout(ir)
 
         self.chat_status = QLabel("")
         self.chat_status.setStyleSheet(f"font-size:11px; color:{C.text_muted}; background:transparent;")
-        rl.addWidget(self.chat_status)
-        ml.addWidget(rp)
+        vl.addWidget(self.chat_status)
 
         self._init_assistant()
+        self._populate_chat_scenes()
         return w
+
+    def _populate_chat_scenes(self):
+        """填充场景和类型下拉框"""
+        # 场景下拉已包含"自由对话"
+        for name, info in AIAssistant.SCENARIOS.items():
+            if name != "自由对话":
+                self.chat_scene_combo.addItem(f"{info['icon']} {name}", name)
+        # 默认选自由对话，类型下拉隐藏
+        self._on_chat_scene_changed(0)
+
+    def _on_chat_scene_changed(self, idx):
+        """场景切换时更新类型下拉框"""
+        scene_name = self.chat_scene_combo.currentData()
+        self.chat_type_combo.clear()
+        if scene_name == "自由对话":
+            self.chat_type_combo.setVisible(False)
+            self.chat_template_btn.setVisible(False)
+            return
+        self.chat_type_combo.setVisible(True)
+        self.chat_template_btn.setVisible(True)
+        # 根据场景给出类型选项
+        type_options = {
+            "运营策略": ["完整策略方案", "账号定位建议", "提升曝光技巧", "发布时间策略"],
+            "文案优化": ["5种风格标题", "真诚实惠型", "专业测评型", "急售捡漏型", "故事营销型", "简单直接型"],
+            "定价分析": ["行情价格分析", "定价策略建议", "价格谈判技巧", "降价涨价时机"],
+            "选品建议": ["竞争分析", "细分品类推荐", "货源渠道建议", "利润空间分析"],
+            "客户沟通": ["回复话术模板", "砍价应对技巧", "售后纠纷处理", "好评引导技巧"],
+        }
+        for opt in type_options.get(scene_name, ["默认"]):
+            self.chat_type_combo.addItem(opt, opt)
+        # 确保可见
+        self.chat_type_combo.show()
+        self.chat_template_btn.show()
+
+    def _on_use_template(self):
+        """使用模板发起对话"""
+        scene_name = self.chat_scene_combo.currentData()
+        type_name = self.chat_type_combo.currentData() if self.chat_type_combo.currentData() else ""
+        kw = self.nav_keyword.text().strip() or ""
+        if not kw:
+            kw = self.chat_input.text().strip()
+
+        if scene_name == "自由对话":
+            return
+
+        self.chat_display.append(f"\n📌 **{scene_name}** → {type_name}\n")
+        QApplication.processEvents()
+        self.chat_status.setText("⏳ AI 思考中...")
+
+        # 根据类型构建更精准的prompt
+        prompt = self._build_template_prompt(scene_name, type_name, kw)
+        reply = self.ai_assistant.chat(prompt, kw)
+        if reply:
+            self.chat_display.append(f"🤖 **AI助手：**\n\n{reply}\n")
+        self.chat_status.setText("✅ 就绪")
+        self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
+
+    def _build_template_prompt(self, scene_name, type_name, keyword):
+        """根据场景+类型构建精准prompt"""
+        base = AIAssistant.SCENARIOS.get(scene_name, {}).get("prompt", "")
+        if not base:
+            return f"请针对「{keyword}」提供{type_name}方面的建议。"
+
+        # 如果用户选了具体类型，在prompt后追加聚焦指令
+        focus_map = {
+            "完整策略方案": "\n请给出完整全面的策略，覆盖所有要点。",
+            "账号定位建议": "\n请重点展开第1点：账号定位和人设打造。",
+            "提升曝光技巧": "\n请重点展开第6点：如何提升曝光和转化。",
+            "发布时间策略": "\n请重点展开第5点：发布时间和频率。",
+            "5种风格标题": "",
+            "真诚实惠型": "\n请只写真诚实惠型风格，写3个完整标题+描述。",
+            "专业测评型": "\n请只写专业测评型风格，写3个完整标题+描述。",
+            "急售捡漏型": "\n请只写急售捡漏型风格，写3个完整标题+描述。",
+            "故事营销型": "\n请只写故事营销型风格，写3个完整标题+描述。",
+            "简单直接型": "\n请只写简单直接型风格，写3个完整标题+描述。",
+            "行情价格分析": "\n请重点展开第1-2点：行情价格区间和影响因素。",
+            "定价策略建议": "\n请重点展开第3点：如何根据成色/配件/保修定价。",
+            "价格谈判技巧": "\n请重点展开第4点：价格谈判技巧。",
+            "降价涨价时机": "\n请重点展开第5点：什么时候适合降价/涨价。",
+            "竞争分析": "\n请重点展开第1点：品类竞争情况。",
+            "细分品类推荐": "\n请重点展开第2点：哪些细分品类更值得做。",
+            "货源渠道建议": "\n请重点展开第3点：货源渠道建议。",
+            "利润空间分析": "\n请重点展开第4点：利润空间分析。",
+            "回复话术模板": "\n请重点展开第1点：常见客户问题及标准回复话术。",
+            "砍价应对技巧": "\n请重点展开第2点：如何应对砍价。",
+            "售后纠纷处理": "\n请重点展开第3点：如何处理售后纠纷。",
+            "好评引导技巧": "\n请重点展开第4点：如何引导好评。",
+        }
+        extra = focus_map.get(type_name, "")
+        return base.format(keyword=keyword) if keyword else base + extra
 
     def _init_assistant(self):
         """初始化AI助手并加载记忆"""
@@ -1058,23 +1197,6 @@ class MainWindow(QMainWindow):
         self.ai_assistant = AIAssistant(config=self.researcher.config, db=self.db,
                                          memory_path=mem_path, main_window=self)
         self.ai_assistant.load_memory()
-
-    def _on_scene_selected(self):
-        item = self.scene_list.currentItem()
-        if not item: return
-        scene_name = item.data(Qt.ItemDataRole.UserRole)
-        kw = self.nav_keyword.text().strip() or ""
-        if scene_name == "自由对话":
-            self.chat_display.append("\n💡 **自由对话模式**\n")
-            return
-        self.chat_display.append(f"\n📌 **已选择场景：{scene_name}**\n")
-        QApplication.processEvents()
-        self.chat_status.setText("⏳ AI 思考中...")
-        reply = self.ai_assistant.chat_with_scenario(scene_name, kw)
-        if reply:
-            self.chat_display.append(f"\n🤖 **AI助手：**\n\n{reply}\n")
-        self.chat_status.setText("✅ 就绪")
-        self.tab_widget.setCurrentIndex(1)
 
     def _on_send_message(self):
         msg = self.chat_input.text().strip()
@@ -1179,7 +1301,10 @@ class MainWindow(QMainWindow):
         if not kw:
             QMessageBox.warning(self, "提示", "请输入搜索关键词")
             return
-        mx = self.nav_count.value()
+        try:
+            mx = int(self.nav_count.text().strip() or "30")
+        except ValueError:
+            mx = 30
         di = self.cfg["collection"]["download_images"]
 
         if QMessageBox.question(self, "确认开始采集",
