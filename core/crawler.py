@@ -84,36 +84,44 @@ class XianyuCrawler:
     # ========== 浏览器管理 ==========
 
     async def _init_browser(self):
-        """初始化浏览器"""
+        """初始化浏览器 - 使用 launch() 避免 user_data_dir 锁定"""
         from playwright.async_api import async_playwright
 
         self.log("正在启动浏览器...", "info")
 
         self.playwright = await async_playwright().start()
 
-        # 使用持久化上下文，user_data_dir 保存所有状态（Cookie/登录态）
-        user_data_dir = os.path.join(self.cfg["paths"]["data_dir"], "browser_data")
-        os.makedirs(user_data_dir, exist_ok=True)
-
-        self.context = await self.playwright.chromium.launch_persistent_context(
-            user_data_dir=user_data_dir,
+        # 启动浏览器（不用持久化上下文，避免锁定问题）
+        self.browser = await self.playwright.chromium.launch(
             headless=False,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-infobars",
+                "--no-sandbox",
+            ],
+        )
+
+        # 尝试加载已保存的登录状态
+        cookie_file = self.cfg["paths"]["cookie_file"]
+        storage_state = None
+        if os.path.exists(cookie_file):
+            try:
+                storage_state = cookie_file
+                self.log("已加载上次登录状态", "info")
+            except Exception:
+                pass
+
+        # 创建上下文
+        self.context = await self.browser.new_context(
             viewport={
                 "width": self.cfg["xianyu"]["viewport_width"],
                 "height": self.cfg["xianyu"]["viewport_height"],
             },
             user_agent=self.cfg["xianyu"]["user_agent"],
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-            ],
+            storage_state=storage_state,
         )
 
-        # 关闭默认空白页，创建新页面
-        if self.context.pages:
-            self.page = self.context.pages[0]
-        else:
-            self.page = await self.context.new_page()
+        self.page = await self.context.new_page()
 
         # 注入反检测脚本
         await self.page.add_init_script("""
@@ -125,9 +133,17 @@ class XianyuCrawler:
         self.log("浏览器启动成功", "success")
 
     async def _close_browser(self):
-        """关闭浏览器"""
+        """关闭浏览器并保存登录状态"""
         try:
-            # 持久化上下文自动保存状态到 user_data_dir，无需手动操作
+            if self.context:
+                # 保存 Cookie 到文件
+                cookie_file = self.cfg["paths"]["cookie_file"]
+                os.makedirs(os.path.dirname(cookie_file), exist_ok=True)
+                await self.context.storage_state(path=cookie_file)
+                self.log("登录状态已保存", "info")
+
+            if self.browser:
+                await self.browser.close()
             if self.playwright:
                 await self.playwright.stop()
         except Exception as e:
@@ -163,7 +179,10 @@ class XianyuCrawler:
                 is_logged_in = await self._check_login_status()
                 if is_logged_in:
                     self.log("登录成功 ✅", "success")
-                    # 持久化上下文会自动保存到 user_data_dir
+                    # 立即保存登录状态
+                    cookie_file = self.cfg["paths"]["cookie_file"]
+                    os.makedirs(os.path.dirname(cookie_file), exist_ok=True)
+                    await self.context.storage_state(path=cookie_file)
                     return True
 
             self.log("登录超时，请重试", "error")
