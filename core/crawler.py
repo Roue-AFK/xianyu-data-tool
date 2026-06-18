@@ -91,14 +91,13 @@ class XianyuCrawler:
 
         self.playwright = await async_playwright().start()
 
-        # 尝试加载已保存的 Cookie
-        cookie_file = self.cfg["paths"]["cookie_file"]
-        storage_state = cookie_file if os.path.exists(cookie_file) else None
+        # 使用持久化上下文，user_data_dir 保存所有状态（Cookie/登录态）
+        user_data_dir = os.path.join(self.cfg["paths"]["data_dir"], "browser_data")
+        os.makedirs(user_data_dir, exist_ok=True)
 
         self.context = await self.playwright.chromium.launch_persistent_context(
-            user_data_dir=os.path.join(self.cfg["paths"]["data_dir"], "browser_data"),
-            headless=False,  # 非无头模式，让用户看到浏览器操作
-            storage_state=storage_state,
+            user_data_dir=user_data_dir,
+            headless=False,
             viewport={
                 "width": self.cfg["xianyu"]["viewport_width"],
                 "height": self.cfg["xianyu"]["viewport_height"],
@@ -110,7 +109,7 @@ class XianyuCrawler:
             ],
         )
 
-        # 关闭默认页面，创建新页面
+        # 关闭默认空白页，创建新页面
         if self.context.pages:
             self.page = self.context.pages[0]
         else:
@@ -128,13 +127,7 @@ class XianyuCrawler:
     async def _close_browser(self):
         """关闭浏览器"""
         try:
-            if self.context:
-                # 保存 Cookie
-                cookie_file = self.cfg["paths"]["cookie_file"]
-                os.makedirs(os.path.dirname(cookie_file), exist_ok=True)
-                await self.context.storage_state(path=cookie_file)
-                self.log("登录状态已保存", "info")
-
+            # 持久化上下文自动保存状态到 user_data_dir，无需手动操作
             if self.playwright:
                 await self.playwright.stop()
         except Exception as e:
@@ -170,10 +163,7 @@ class XianyuCrawler:
                 is_logged_in = await self._check_login_status()
                 if is_logged_in:
                     self.log("登录成功 ✅", "success")
-                    # 保存 Cookie
-                    cookie_file = self.cfg["paths"]["cookie_file"]
-                    os.makedirs(os.path.dirname(cookie_file), exist_ok=True)
-                    await self.context.storage_state(path=cookie_file)
+                    # 持久化上下文会自动保存到 user_data_dir
                     return True
 
             self.log("登录超时，请重试", "error")
