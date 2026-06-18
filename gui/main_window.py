@@ -192,11 +192,11 @@ class StatusBadge(QFrame):
     """AI状态徽章 — 带颜色指示点 + 文字"""
     def __init__(self, text="就绪", color=C.success):
         super().__init__()
-        self.setFixedHeight(26)
+        self.setFixedHeight(22)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 2, 12, 2)
-        layout.setSpacing(6)
+        layout.setContentsMargins(8, 1, 10, 1)
+        layout.setSpacing(4)
         self._dot = QLabel("●")
         self._dot.setStyleSheet(f"color:{color}; font-size:10px; border:none; background:transparent;")
         layout.addWidget(self._dot)
@@ -448,9 +448,33 @@ class SettingsDialog(QDialog):
         cancel_btn = QPushButton("取消")
         cancel_btn.setStyleSheet(f"QPushButton {{ background:{C.card}; color:{C.text}; border:1px solid {C.border}; padding:10px 24px; border-radius:8px; }}")
         cancel_btn.clicked.connect(self.reject)
+        update_btn = QPushButton("🔄 检查更新")
+        update_btn.setStyleSheet(f"QPushButton {{ background:{C.info_bg}; color:{C.info}; font-weight:bold; border:1px solid {C.info}40; padding:10px 20px; border-radius:8px; }} QPushButton:hover {{ background:{C.info}20; }}")
+        update_btn.clicked.connect(self._on_check_update)
+        btn_box.addButton(update_btn, QDialogButtonBox.ButtonRole.ActionRole)
         btn_box.addButton(save_btn, QDialogButtonBox.ButtonRole.AcceptRole)
         btn_box.addButton(cancel_btn, QDialogButtonBox.ButtonRole.RejectRole)
         layout.addWidget(btn_box)
+
+    def _on_check_update(self):
+        """检查GitHub更新"""
+        import subprocess, os
+        project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        try:
+            result = subprocess.run(
+                "git fetch origin && git reset --hard origin/master",
+                shell=True, cwd=project_dir, capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0:
+                QMessageBox.information(self, "✅ 更新完成",
+                    f"代码已同步到最新版本！\n\n{result.stdout.strip() or '已是最新版本'}\n\n请重启应用以生效。")
+            else:
+                QMessageBox.warning(self, "⚠ 更新失败",
+                    f"Git 操作失败：\n{result.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            QMessageBox.warning(self, "⚠ 更新超时", "网络连接超时，请检查网络后重试。")
+        except Exception as e:
+            QMessageBox.warning(self, "⚠ 更新失败", f"发生错误：{e}")
 
     def _on_cfg_provider_changed(self, idx):
         key = self.cfg_ai_provider.itemData(idx)
@@ -1156,7 +1180,7 @@ class MainWindow(QMainWindow):
         bottom.setStyleSheet(f"background:transparent; border:none;")
         bl = QVBoxLayout(bottom)
         bl.setSpacing(0)
-        bl.setContentsMargins(16, 0, 16, 12)
+        bl.setContentsMargins(12, 0, 12, 8)
 
         # 输入卡片主体
         card = QFrame()
@@ -1164,20 +1188,20 @@ class MainWindow(QMainWindow):
             QFrame#inputCard {{
                 background: {C.card};
                 border: 1px solid {C.border};
-                border-radius: 16px;
+                border-radius: 12px;
             }}
             QFrame#inputCard:hover {{ border-color: {C.primary}60; }}
         """)
         card.setObjectName("inputCard")
         cl = QVBoxLayout(card)
         cl.setSpacing(0)
-        cl.setContentsMargins(4, 4, 4, 4)
+        cl.setContentsMargins(2, 2, 2, 4)
 
         # ── 输入区 ──
         self.chat_input = QTextEdit()
         self.chat_input.setObjectName("chatInput")
         self.chat_input.setPlaceholderText("输入消息... (Enter发送，Shift+Enter换行)")
-        self.chat_input.setFixedHeight(52)
+        self.chat_input.setFixedHeight(36)
         self.chat_input.setAcceptRichText(False)
         self.chat_input.setStyleSheet(f"""
             QTextEdit#chatInput {{
@@ -1191,12 +1215,12 @@ class MainWindow(QMainWindow):
 
         # ── 底部工具栏 ──
         tool_row = QHBoxLayout()
-        tool_row.setContentsMargins(6, 0, 4, 6)
-        tool_row.setSpacing(4)
+        tool_row.setContentsMargins(4, 0, 4, 4)
+        tool_row.setSpacing(2)
 
         # 模型选择下拉按钮
         model_btn = QPushButton("Agnes")
-        model_btn.setFixedHeight(26)
+        model_btn.setFixedHeight(22)
         model_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         model_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1217,13 +1241,13 @@ class MainWindow(QMainWindow):
         # 自动执行开关
         auto_pill = QFrame()
         auto_pill.setObjectName("autoPill")
-        auto_pill.setStyleSheet(f"QFrame#autoPill {{ background:{C.bg}; border-radius:8px; border:1px solid {C.border}; }}")
+        auto_pill.setStyleSheet(f"QFrame#autoPill {{ background:{C.bg}; border-radius:6px; border:1px solid {C.border}; }}")
         auto_pill.setCursor(Qt.CursorShape.PointingHandCursor)
         apl = QHBoxLayout(auto_pill)
-        apl.setContentsMargins(8, 0, 10, 0)
+        apl.setContentsMargins(6, 0, 8, 0)
         apl.setSpacing(2)
         self.agent_toggle = QCheckBox("自动")
-        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:11px; color:{C.text}; spacing:2px; border:none; background:transparent; }}")
+        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:10px; color:{C.text}; spacing:2px; border:none; background:transparent; }}")
         self.agent_toggle.toggled.connect(self._on_agent_mode_toggled)
         apl.addWidget(self.agent_toggle)
         tool_row.addWidget(auto_pill)
@@ -1232,10 +1256,10 @@ class MainWindow(QMainWindow):
         self.depth_btn_group = QFrame()
         self.depth_btn_group.setObjectName("depthGroup")
         self.depth_btn_group.setStyleSheet(
-            f"QFrame#depthGroup {{ background:{C.bg}; border-radius:8px; border:1px solid {C.border}; }}"
+            f"QFrame#depthGroup {{ background:{C.bg}; border-radius:6px; border:1px solid {C.border}; }}"
         )
         dg = QHBoxLayout(self.depth_btn_group)
-        dg.setContentsMargins(3, 3, 3, 3)
+        dg.setContentsMargins(2, 2, 2, 2)
         dg.setSpacing(1)
 
         self._depth_btns = {}
@@ -1247,7 +1271,7 @@ class MainWindow(QMainWindow):
         for key, label in depth_configs:
             btn = QPushButton(label)
             btn.setCheckable(True)
-            btn.setFixedHeight(22)
+            btn.setFixedHeight(20)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(f"""
                 QPushButton {{
@@ -1268,7 +1292,7 @@ class MainWindow(QMainWindow):
 
         # 技能按钮
         skill_btn = QPushButton("⚡技能")
-        skill_btn.setFixedHeight(26)
+        skill_btn.setFixedHeight(22)
         skill_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         skill_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1286,7 +1310,7 @@ class MainWindow(QMainWindow):
 
         # 场景按钮
         scene_btn = QPushButton("场景")
-        scene_btn.setFixedHeight(26)
+        scene_btn.setFixedHeight(22)
         scene_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         scene_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1305,7 +1329,7 @@ class MainWindow(QMainWindow):
 
         # + 更多按钮
         more_btn = QPushButton("+")
-        more_btn.setFixedSize(26, 26)
+        more_btn.setFixedSize(22, 22)
         more_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         more_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1334,12 +1358,12 @@ class MainWindow(QMainWindow):
 
         # 发送圆形按钮
         send_btn = QPushButton("↑")
-        send_btn.setFixedSize(32, 32)
+        send_btn.setFixedSize(28, 28)
         send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         send_btn.setStyleSheet(f"""
             QPushButton {{
-                background: {C.primary}; color: white; font-size: 15px; font-weight: bold;
-                border: none; border-radius: 16px;
+                background: {C.primary}; color: white; font-size: 13px; font-weight: bold;
+                border: none; border-radius: 14px;
             }}
             QPushButton:hover {{ background: {C.primary_hover}; }}
             QPushButton:pressed {{ background: #E8951E; }}
