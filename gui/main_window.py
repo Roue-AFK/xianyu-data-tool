@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QMessageBox, QGroupBox,
     QComboBox, QStatusBar, QFormLayout, QDoubleSpinBox,
     QGridLayout, QScrollArea, QFrame, QMenuBar, QMenu,
-    QDialog,
+    QDialog, QApplication,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QTextCursor, QAction
@@ -26,6 +26,7 @@ from core.config import get_config, save_user_config
 from core.database import Database
 from core.analyzer import Analyzer
 from core.exporter import Exporter
+from core.researcher import MarketResearcher
 
 
 # ========== 配色方案：白黄柔和 ==========
@@ -198,6 +199,7 @@ class MainWindow(QMainWindow):
         self.db = Database()
         self.analyzer = Analyzer(self.db)
         self.exporter = Exporter(self.db)
+        self.researcher = MarketResearcher()
         self.worker = None
         self.current_task_id = None
         self._init_ui()
@@ -303,6 +305,7 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.tab_widget.setDocumentMode(True)
         self.tab_widget.addTab(self._dashboard(), "🏠 仪表盘")
+        self.tab_widget.addTab(self._research_tab(), "🔍 AI调研")
         self.tab_widget.addTab(self._data_tab(), "📊 数据预览")
         self.tab_widget.addTab(self._analysis_tab(), "📈 文案分析")
         self.tab_widget.addTab(self._log_tab(), "📋 运行日志")
@@ -352,6 +355,16 @@ class MainWindow(QMainWindow):
         self.nav_count.setFixedWidth(85)
         self.nav_count.setFixedHeight(40)
         nl.addWidget(self.nav_count)
+
+        # AI调研按钮
+        self.research_btn = QPushButton("🔍 AI调研")
+        self.research_btn.setFixedHeight(40)
+        self.research_btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.card}; border:1px solid {C.border}; color:{C.text}; font-weight:bold; }}
+            QPushButton:hover {{ border-color:{C.info}; color:{C.info}; background:{C.info_bg}; }}
+        """)
+        self.research_btn.clicked.connect(self._on_research)
+        nl.addWidget(self.research_btn)
 
         self.nav_start_btn = QPushButton("🚀 开始采集")
         self.nav_start_btn.setFixedHeight(40)
@@ -448,6 +461,111 @@ class MainWindow(QMainWindow):
         lay.addStretch()
         scroll.setWidget(w)
         return scroll
+
+    # ===== AI调研 =====
+
+    def _research_tab(self):
+        """AI市场调研标签页"""
+        w = QWidget()
+        w.setStyleSheet(f"background:{C.bg};")
+        lay = QVBoxLayout(w)
+        lay.setSpacing(12)
+        lay.setContentsMargins(20, 16, 20, 16)
+
+        # 说明区
+        info = QLabel(
+            "💡 <b>AI市场调研</b>：输入关键词，先分析市场热度、品类、价格区间、采集策略，\n"
+            "确认值得采集后再启动爬虫，避免浪费时间采集无价值的数据。"
+        )
+        info.setStyleSheet(f"color:{C.text_dim}; font-size:12px; background:{C.primary_bg}; "
+                           f"border:1px solid {C.primary}30; border-radius:8px; padding:12px;")
+        info.setWordWrap(True)
+        lay.addWidget(info)
+
+        # 输入区
+        input_row = QHBoxLayout()
+        self.research_keyword = QLineEdit()
+        self.research_keyword.setPlaceholderText("输入要调研的关键词，如：蓝牙耳机、机械键盘...")
+        self.research_keyword.setFixedHeight(40)
+        self.research_keyword.returnPressed.connect(self._on_research)
+        input_row.addWidget(self.research_keyword)
+
+        btn = QPushButton("🔍 开始调研")
+        btn.setFixedHeight(40)
+        btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.primary}; color:white; font-weight:bold; border:none; padding:8px 24px; }}
+            QPushButton:hover {{ background:{C.primary_hover}; }}
+        """)
+        btn.clicked.connect(self._on_research)
+        input_row.addWidget(btn)
+
+        # 快捷采集按钮
+        quick_btn = QPushButton("📊 调研后直接采集")
+        quick_btn.setFixedHeight(40)
+        quick_btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.success}; color:white; font-weight:bold; border:none; padding:8px 20px; }}
+            QPushButton:hover {{ background:#38B820; }}
+        """)
+        quick_btn.clicked.connect(self._on_research_and_collect)
+        input_row.addWidget(quick_btn)
+
+        lay.addLayout(input_row)
+
+        # 调研结果
+        self.research_text = QTextEdit()
+        self.research_text.setReadOnly(True)
+        self.research_text.setFont(QFont("Microsoft YaHei", 11))
+        self.research_text.setStyleSheet(f"""
+            QTextEdit {{ background:{C.card}; color:{C.text}; border:1px solid {C.border};
+                        border-radius:10px; padding:20px; line-height:1.7; }}
+        """)
+        self.research_text.setPlaceholderText("👈 输入关键词，点击「开始调研」查看市场分析报告...")
+        lay.addWidget(self.research_text)
+
+        return w
+
+    def _on_research(self):
+        """执行AI调研"""
+        kw = self.research_keyword.text().strip()
+        if not kw:
+            kw = self.nav_keyword.text().strip()
+        if not kw:
+            QMessageBox.warning(self, "提示", "请输入要调研的关键词")
+            return
+
+        self.tab_widget.setCurrentIndex(1)
+        self.research_text.setPlainText("🔍 正在分析中...\n")
+        QApplication.processEvents()
+
+        try:
+            md = self.researcher.generate_markdown_report(kw)
+            self.research_text.setMarkdown(md)
+        except Exception as e:
+            self.research_text.setPlainText(f"调研失败: {e}")
+
+    def _on_research_and_collect(self):
+        """调研后直接采集"""
+        kw = self.research_keyword.text().strip()
+        if not kw:
+            kw = self.nav_keyword.text().strip()
+        if not kw:
+            QMessageBox.warning(self, "提示", "请输入关键词")
+            return
+
+        # 先生成调研报告
+        self._on_research()
+
+        # 然后设置导航栏关键词并开始采集
+        self.nav_keyword.setText(kw)
+        reply = QMessageBox.question(
+            self, "确认采集",
+            f"<h3>调研报告已生成</h3>"
+            f"<p>是否现在开始采集「{kw}」的商品数据？</p>",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._on_start()
 
     # ===== 数据预览 =====
 
@@ -778,21 +896,45 @@ class MainWindow(QMainWindow):
 
     def _on_export_excel(self):
         try:
-            p = self.exporter.export_to_excel(task_id=self.data_task_combo.currentData(),
-                                               keyword=self.nav_keyword.text().strip() or "全部")
+            task_id = self.data_task_combo.currentData()
+            # 获取任务关键词
+            keyword = "全部"
+            if task_id:
+                task = self.db.get_task(task_id)
+                if task:
+                    keyword = task.get("keyword", "全部")
+            else:
+                keyword = self.nav_keyword.text().strip() or "全部"
+
+            p = self.exporter.export_to_excel(task_id=task_id, keyword=keyword)
             self._log(f"✅ Excel 导出成功: {p}", "success")
-            QMessageBox.information(self, "导出成功", f"<h3>✅ 导出成功</h3><p>{p}</p><p>包含：商品数据 | 统计分析 | 文案汇总</p>")
+            QMessageBox.information(self, "导出成功",
+                f"<h3>✅ 导出成功</h3>"
+                f"<p>文件位置：<br><code>{p}</code></p>"
+                f"<p>包含三个工作表：商品数据 | 统计分析 | 文案汇总</p>")
+        except ValueError as e:
+            QMessageBox.warning(self, "导出失败", str(e))
         except Exception as e:
-            QMessageBox.critical(self, "导出失败", str(e))
+            QMessageBox.critical(self, "导出失败", f"导出时发生错误：\n{str(e)}")
 
     def _on_export_csv(self):
         try:
-            p = self.exporter.export_to_csv(task_id=self.data_task_combo.currentData(),
-                                             keyword=self.nav_keyword.text().strip() or "全部")
+            task_id = self.data_task_combo.currentData()
+            keyword = "全部"
+            if task_id:
+                task = self.db.get_task(task_id)
+                if task:
+                    keyword = task.get("keyword", "全部")
+            else:
+                keyword = self.nav_keyword.text().strip() or "全部"
+
+            p = self.exporter.export_to_csv(task_id=task_id, keyword=keyword)
             self._log(f"✅ CSV 导出成功: {p}", "success")
             QMessageBox.information(self, "导出成功", f"<h3>✅ 导出成功</h3><p>{p}</p>")
+        except ValueError as e:
+            QMessageBox.warning(self, "导出失败", str(e))
         except Exception as e:
-            QMessageBox.critical(self, "导出失败", str(e))
+            QMessageBox.critical(self, "导出失败", f"导出时发生错误：\n{str(e)}")
 
     def _on_analyze(self):
         try:
