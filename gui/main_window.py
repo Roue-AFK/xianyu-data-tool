@@ -1049,18 +1049,6 @@ class MainWindow(QMainWindow):
             self.tab_widget.addTab(self._xhs_keywords_tab(), "🔑 关键词追踪")
             self.tab_widget.addTab(self._xianyu_chat_tab, "💬 AI调研对话")
 
-        # 齿轮设置按钮 - 放在导航栏最右侧
-        gear_btn = QPushButton("⚙️")
-        gear_btn.setFixedSize(38, 38)
-        gear_btn.setToolTip("打开设置面板")
-        gear_btn.setStyleSheet(f"""
-            QPushButton {{ background:transparent; border:1px solid {C.border}; border-radius:19px; font-size:20px; padding:0; }}
-            QPushButton:hover {{ background:{C.primary_bg}; border-color:{C.primary}; }}
-        """)
-        gear_btn.clicked.connect(self._on_open_settings)
-        nl.addWidget(gear_btn)
-        parent.addWidget(bar)
-
     def _on_open_settings(self):
         """打开设置弹窗"""
         dlg = SettingsDialog(self, self.researcher, self.cfg)
