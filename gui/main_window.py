@@ -1186,39 +1186,41 @@ class MainWindow(QMainWindow):
         # 输入卡片主体
         card = QFrame()
         card.setStyleSheet(f"""
-            QFrame {{
+            QFrame#inputCard {{
                 background: {C.card};
                 border: 1px solid {C.border};
                 border-radius: 16px;
             }}
-            QFrame:hover {{ border-color: {C.primary}60; }}
+            QFrame#inputCard:hover {{ border-color: {C.primary}60; }}
         """)
+        card.setObjectName("inputCard")
         cl = QVBoxLayout(card)
         cl.setSpacing(0)
-        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setContentsMargins(4, 4, 4, 4)
 
         # ── 顶部模型/模式选择栏 ──
         top_row = QHBoxLayout()
-        top_row.setContentsMargins(14, 10, 14, 4)
+        top_row.setContentsMargins(10, 6, 10, 0)
         top_row.setSpacing(6)
 
         # 模型选择按钮组
         self.model_btn_group = QFrame()
-        self.model_btn_group.setStyleSheet(f"background:{C.bg}; border-radius:8px; border:1px solid {C.border};")
+        self.model_btn_group.setObjectName("modelGroup")
+        self.model_btn_group.setStyleSheet(f"QFrame#modelGroup {{ background:{C.bg}; border-radius:8px; border:1px solid {C.border}; }}")
         mg = QHBoxLayout(self.model_btn_group)
         mg.setContentsMargins(3, 3, 3, 3)
-        mg.setSpacing(2)
+        mg.setSpacing(1)
 
         self._model_btns = {}
-        for key, label in [("agnes", "Agnes"), ("deepseek", "DeepSeek"), ("qwen", "通义")]:
+        for key, label in [("agnes", "Agnes"), ("deepseek", "DS"), ("qwen", "通义")]:
             btn = QPushButton(label)
             btn.setCheckable(True)
-            btn.setFixedHeight(26)
+            btn.setFixedHeight(24)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background: transparent; border: none; border-radius: 6px;
-                    padding: 2px 10px; font-size: 11px; color: {C.text_dim};
+                    padding: 2px 8px; font-size: 11px; color: {C.text_dim};
                 }}
                 QPushButton:hover {{ color: {C.text}; background: {C.card}; }}
                 QPushButton:checked {{ color: {C.primary}; font-weight: bold; background: {C.card}; }}
@@ -1229,17 +1231,18 @@ class MainWindow(QMainWindow):
         self._model_btns["agnes"].setChecked(True)
         top_row.addWidget(self.model_btn_group)
 
-        top_row.addSpacing(6)
+        top_row.addSpacing(4)
 
         # 自动执行开关
         auto_pill = QFrame()
-        auto_pill.setStyleSheet(f"background:{C.bg}; border-radius:8px; border:1px solid {C.border};")
+        auto_pill.setObjectName("autoPill")
+        auto_pill.setStyleSheet(f"QFrame#autoPill {{ background:{C.bg}; border-radius:8px; border:1px solid {C.border}; }}")
         auto_pill.setCursor(Qt.CursorShape.PointingHandCursor)
         apl = QHBoxLayout(auto_pill)
         apl.setContentsMargins(8, 0, 10, 0)
-        apl.setSpacing(4)
-        self.agent_toggle = QCheckBox("自动执行")
-        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:11px; color:{C.text_dim}; spacing:3px; border:none; background:transparent; }}")
+        apl.setSpacing(2)
+        self.agent_toggle = QCheckBox("自动")
+        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:11px; color:{C.text_dim}; spacing:2px; border:none; background:transparent; }}")
         self.agent_toggle.toggled.connect(self._on_agent_mode_toggled)
         apl.addWidget(self.agent_toggle)
         top_row.addWidget(auto_pill)
@@ -1249,32 +1252,33 @@ class MainWindow(QMainWindow):
 
         # ── 输入区 ──
         self.chat_input = QTextEdit()
+        self.chat_input.setObjectName("chatInput")
         self.chat_input.setPlaceholderText("输入消息... (Enter发送，Shift+Enter换行)")
-        self.chat_input.setFixedHeight(56)
+        self.chat_input.setFixedHeight(52)
         self.chat_input.setAcceptRichText(False)
         self.chat_input.setStyleSheet(f"""
-            QTextEdit {{
-                border: none; border-radius: 0; padding: 6px 18px 0px 18px;
+            QTextEdit#chatInput {{
+                border: none; border-radius: 0; padding: 4px 16px 0px 16px;
                 font-size: 13px; background: transparent; color: {C.text};
             }}
-            QTextEdit:focus {{ border: none; }}
+            QTextEdit#chatInput:focus {{ border: none; }}
         """)
         self.chat_input.installEventFilter(self)
         cl.addWidget(self.chat_input)
 
         # ── 底部工具栏 ──
         tool_row = QHBoxLayout()
-        tool_row.setContentsMargins(10, 2, 6, 8)
-        tool_row.setSpacing(4)
+        tool_row.setContentsMargins(6, 0, 4, 6)
+        tool_row.setSpacing(3)
 
         # Craft 按钮
         craft_btn = QPushButton("Craft")
-        craft_btn.setFixedHeight(28)
+        craft_btn.setFixedHeight(26)
         craft_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         craft_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {C.primary}15; color: {C.primary}; font-weight: bold;
-                border: none; border-radius: 8px; padding: 2px 12px; font-size: 11px;
+                border: none; border-radius: 8px; padding: 2px 10px; font-size: 11px;
             }}
             QPushButton:hover {{ background: {C.primary}25; }}
         """)
@@ -1282,13 +1286,13 @@ class MainWindow(QMainWindow):
         tool_row.addWidget(craft_btn)
 
         # 技能按钮
-        skill_btn = QPushButton("⚡ 技能")
-        skill_btn.setFixedHeight(28)
+        skill_btn = QPushButton("⚡技能")
+        skill_btn.setFixedHeight(26)
         skill_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         skill_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; color: {C.text_dim};
-                border: none; border-radius: 8px; padding: 2px 10px; font-size: 11px;
+                border: none; border-radius: 8px; padding: 2px 8px; font-size: 11px;
             }}
             QPushButton:hover {{ background: {C.bg}; color: {C.text}; }}
         """)
@@ -1301,12 +1305,12 @@ class MainWindow(QMainWindow):
 
         # 场景按钮
         scene_btn = QPushButton("场景")
-        scene_btn.setFixedHeight(28)
+        scene_btn.setFixedHeight(26)
         scene_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         scene_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; color: {C.text_dim};
-                border: none; border-radius: 8px; padding: 2px 10px; font-size: 11px;
+                border: none; border-radius: 8px; padding: 2px 8px; font-size: 11px;
             }}
             QPushButton:hover {{ background: {C.bg}; color: {C.text}; }}
         """)
@@ -1320,11 +1324,11 @@ class MainWindow(QMainWindow):
 
         # + 更多按钮
         more_btn = QPushButton("+")
-        more_btn.setFixedSize(28, 28)
+        more_btn.setFixedSize(26, 26)
         more_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         more_btn.setStyleSheet(f"""
             QPushButton {{
-                background: transparent; color: {C.text_dim}; font-size: 16px; font-weight: bold;
+                background: transparent; color: {C.text_dim}; font-size: 14px; font-weight: bold;
                 border: none; border-radius: 8px;
             }}
             QPushButton:hover {{ background: {C.bg}; color: {C.text}; }}
@@ -1349,12 +1353,12 @@ class MainWindow(QMainWindow):
 
         # 发送圆形按钮
         send_btn = QPushButton("↑")
-        send_btn.setFixedSize(34, 34)
+        send_btn.setFixedSize(32, 32)
         send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         send_btn.setStyleSheet(f"""
             QPushButton {{
-                background: {C.primary}; color: white; font-size: 16px; font-weight: bold;
-                border: none; border-radius: 17px;
+                background: {C.primary}; color: white; font-size: 15px; font-weight: bold;
+                border: none; border-radius: 16px;
             }}
             QPushButton:hover {{ background: {C.primary_hover}; }}
             QPushButton:pressed {{ background: #E8951E; }}
