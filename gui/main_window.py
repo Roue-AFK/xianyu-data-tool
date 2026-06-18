@@ -201,7 +201,7 @@ class StatusBadge(QFrame):
         self._dot.setStyleSheet(f"color:{color}; font-size:10px; border:none; background:transparent;")
         layout.addWidget(self._dot)
         self._label = QLabel(text)
-        self._label.setStyleSheet(f"font-size:11px; color:{C.text_dim}; border:none; background:transparent;")
+        self._label.setStyleSheet(f"font-size:11px; color:{C.text}; border:none; background:transparent;")
         layout.addWidget(self._label)
         self.setStyleSheet(f"""
             StatusBadge {{ background:{C.card}; border:1px solid {C.border}; border-radius:13px; }}
@@ -1127,32 +1127,7 @@ class MainWindow(QMainWindow):
         title.setStyleSheet(f"font-size:14px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
         th.addWidget(title)
 
-        # 自动执行开关
-        self.agent_toggle = QCheckBox("自动执行")
-        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:11px; color:{C.text_dim}; spacing:4px; border:none; background:transparent; }} QCheckBox::indicator {{ width:16px; height:16px; }}")
-        self.agent_toggle.toggled.connect(self._on_agent_mode_toggled)
-        th.addWidget(self.agent_toggle)
-        th.addSpacing(8)
-
-        # 场景选择
-        self.chat_scene_combo = NoWheelComboBox()
-        self.chat_scene_combo.setFixedWidth(130)
-        self.chat_scene_combo.setFixedHeight(28)
-        self.chat_scene_combo.addItem("💡 自由对话", "自由对话")
-        self.chat_scene_combo.currentIndexChanged.connect(self._on_chat_scene_changed)
-        th.addWidget(self.chat_scene_combo)
-
-        self.chat_type_combo = NoWheelComboBox()
-        self.chat_type_combo.setFixedWidth(120)
-        self.chat_type_combo.setFixedHeight(28)
-        self.chat_type_combo.hide()
-        th.addWidget(self.chat_type_combo)
-
         th.addStretch()
-
-        # 状态徽章
-        self.chat_status_badge = StatusBadge("就绪", C.success)
-        th.addWidget(self.chat_status_badge)
 
         vl.addWidget(top)
 
@@ -1220,9 +1195,9 @@ class MainWindow(QMainWindow):
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background: transparent; border: none; border-radius: 6px;
-                    padding: 2px 8px; font-size: 11px; color: {C.text_dim};
+                    padding: 2px 8px; font-size: 11px; color: {C.text};
                 }}
-                QPushButton:hover {{ color: {C.text}; background: {C.card}; }}
+                QPushButton:hover {{ color: {C.primary}; background: {C.card}; }}
                 QPushButton:checked {{ color: {C.primary}; font-weight: bold; background: {C.card}; }}
             """)
             btn.clicked.connect(lambda checked, k=key: self._on_model_switch(k))
@@ -1242,7 +1217,7 @@ class MainWindow(QMainWindow):
         apl.setContentsMargins(8, 0, 10, 0)
         apl.setSpacing(2)
         self.agent_toggle = QCheckBox("自动")
-        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:11px; color:{C.text_dim}; spacing:2px; border:none; background:transparent; }}")
+        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:11px; color:{C.text}; spacing:2px; border:none; background:transparent; }}")
         self.agent_toggle.toggled.connect(self._on_agent_mode_toggled)
         apl.addWidget(self.agent_toggle)
         top_row.addWidget(auto_pill)
@@ -1271,19 +1246,43 @@ class MainWindow(QMainWindow):
         tool_row.setContentsMargins(6, 0, 4, 6)
         tool_row.setSpacing(3)
 
-        # Craft 按钮
-        craft_btn = QPushButton("Craft")
-        craft_btn.setFixedHeight(26)
-        craft_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        craft_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {C.primary}15; color: {C.primary}; font-weight: bold;
-                border: none; border-radius: 8px; padding: 2px 10px; font-size: 11px;
-            }}
-            QPushButton:hover {{ background: {C.primary}25; }}
-        """)
-        craft_btn.clicked.connect(lambda: self.chat_input.setFocus())
-        tool_row.addWidget(craft_btn)
+        # 思考深度选择器（pill风格，类似模型切换）
+        self.depth_btn_group = QFrame()
+        self.depth_btn_group.setObjectName("depthGroup")
+        self.depth_btn_group.setStyleSheet(
+            f"QFrame#depthGroup {{ background:{C.bg}; border-radius:8px; border:1px solid {C.border}; }}"
+        )
+        dg = QHBoxLayout(self.depth_btn_group)
+        dg.setContentsMargins(3, 3, 3, 3)
+        dg.setSpacing(1)
+
+        self._depth_btns = {}
+        depth_configs = [
+            ("high", "深度思考"),
+            ("medium", "平衡"),
+            ("low", "快速"),
+        ]
+        for key, label in depth_configs:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setFixedHeight(22)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent; border: none; border-radius: 6px;
+                    padding: 1px 8px; font-size: 10px; color: {C.text};
+                }}
+                QPushButton:hover {{ color: {C.purple}; background: {C.card}; }}
+                QPushButton:checked {{
+                    color: {C.purple}; font-weight: bold; background: {C.card};
+                }}
+            """)
+            btn.clicked.connect(lambda checked, k=key: self._on_depth_switch(k))
+            dg.addWidget(btn)
+            self._depth_btns[key] = btn
+
+        self._depth_btns["medium"].setChecked(True)  # 默认"平衡"
+        tool_row.addWidget(self.depth_btn_group)
 
         # 技能按钮
         skill_btn = QPushButton("⚡技能")
@@ -1291,10 +1290,10 @@ class MainWindow(QMainWindow):
         skill_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         skill_btn.setStyleSheet(f"""
             QPushButton {{
-                background: transparent; color: {C.text_dim};
+                background: transparent; color: {C.text};
                 border: none; border-radius: 8px; padding: 2px 8px; font-size: 11px;
             }}
-            QPushButton:hover {{ background: {C.bg}; color: {C.text}; }}
+            QPushButton:hover {{ background: {C.bg}; color: {C.primary}; }}
         """)
         skill_menu = QMenu(self)
         for name in ["运营策略", "文案优化", "定价分析", "选品建议", "客户沟通"]:
@@ -1309,10 +1308,10 @@ class MainWindow(QMainWindow):
         scene_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         scene_btn.setStyleSheet(f"""
             QPushButton {{
-                background: transparent; color: {C.text_dim};
+                background: transparent; color: {C.text};
                 border: none; border-radius: 8px; padding: 2px 8px; font-size: 11px;
             }}
-            QPushButton:hover {{ background: {C.bg}; color: {C.text}; }}
+            QPushButton:hover {{ background: {C.bg}; color: {C.primary}; }}
         """)
         scene_menu = QMenu(self)
         for name in ["自由对话", "运营策略", "文案优化", "定价分析", "选品建议", "客户沟通"]:
@@ -1328,10 +1327,10 @@ class MainWindow(QMainWindow):
         more_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         more_btn.setStyleSheet(f"""
             QPushButton {{
-                background: transparent; color: {C.text_dim}; font-size: 14px; font-weight: bold;
+                background: transparent; color: {C.text}; font-size: 14px; font-weight: bold;
                 border: none; border-radius: 8px;
             }}
-            QPushButton:hover {{ background: {C.bg}; color: {C.text}; }}
+            QPushButton:hover {{ background: {C.bg}; color: {C.primary}; }}
         """)
         more_menu = QMenu(self)
         more_menu.addAction("📊 数据概览", lambda: self._on_agent_data_overview())
@@ -1385,6 +1384,16 @@ class MainWindow(QMainWindow):
         self.ai_assistant.config = self.researcher.config
         # 更新按钮状态
         for k, btn in self._model_btns.items():
+            btn.setChecked(k == key)
+
+    def _on_depth_switch(self, key):
+        """切换思考深度"""
+        self.thinking_depth = key
+        # 同步到 assistant 配置
+        if hasattr(self, 'ai_assistant'):
+            self.ai_assistant.thinking_depth = key
+        # 更新按钮状态
+        for k, btn in self._depth_btns.items():
             btn.setChecked(k == key)
 
     def _on_scene_menu_select(self, name):
@@ -1528,64 +1537,13 @@ class MainWindow(QMainWindow):
         prompt = AIAssistant.SCENARIOS.get(tag_name, {}).get("prompt", "").format(keyword=kw)
         self._start_stream(prompt, kw)
 
-    def _populate_chat_scenes(self):
-        for name, info in AIAssistant.SCENARIOS.items():
-            if name != "自由对话":
-                self.chat_scene_combo.addItem(f"{info['icon']} {name}", name)
-        self._on_chat_scene_changed(0)
-
-    def _on_chat_scene_changed(self, idx):
-        if idx < 0: return
-        scene_name = self.chat_scene_combo.currentData()
-        self.chat_type_combo.clear()
-        if scene_name == "自由对话":
-            self.chat_type_combo.hide()
-            return
-        type_options = {
-            "运营策略": ["完整策略方案", "账号定位建议", "提升曝光技巧", "发布时间策略"],
-            "文案优化": ["5种风格标题", "真诚实惠型", "专业测评型", "急售捡漏型", "故事营销型", "简单直接型"],
-            "定价分析": ["行情价格分析", "定价策略建议", "价格谈判技巧", "降价涨价时机"],
-            "选品建议": ["竞争分析", "细分品类推荐", "货源渠道建议", "利润空间分析"],
-            "客户沟通": ["回复话术模板", "砍价应对技巧", "售后纠纷处理", "好评引导技巧"],
-        }
-        for opt in type_options.get(scene_name, ["默认"]):
-            self.chat_type_combo.addItem(opt, opt)
-        self.chat_type_combo.show()
-
-    def _on_use_template(self):
-        scene_name = self.chat_scene_combo.currentData()
-        type_name = self.chat_type_combo.currentData() or ""
-        kw = self.nav_keyword.text().strip() or self.chat_input.toPlainText().strip()
-        if scene_name == "自由对话": return
-        self._append_message("user", f"📌 {scene_name} → {type_name}")
-        QApplication.processEvents()
-        prompt = self._build_template_prompt(scene_name, type_name, kw)
-        self._start_stream(prompt, kw)
-
-    def _build_template_prompt(self, scene_name, type_name, keyword):
-        base = AIAssistant.SCENARIOS.get(scene_name, {}).get("prompt", "")
-        if not base: return f"请针对「{keyword}」提供{type_name}方面的建议。"
-        focus_map = {
-            "完整策略方案":"\n请给出完整全面的策略，覆盖所有要点。","账号定位建议":"\n请重点展开第1点：账号定位和人设打造。",
-            "提升曝光技巧":"\n请重点展开第6点：如何提升曝光和转化。","发布时间策略":"\n请重点展开第5点：发布时间和频率。",
-            "5种风格标题":"","真诚实惠型":"\n请只写真诚实惠型风格，写3个完整标题+描述。",
-            "专业测评型":"\n请只写专业测评型风格，写3个完整标题+描述。","急售捡漏型":"\n请只写急售捡漏型风格，写3个完整标题+描述。",
-            "故事营销型":"\n请只写故事营销型风格，写3个完整标题+描述。","简单直接型":"\n请只写简单直接型风格，写3个完整标题+描述。",
-            "行情价格分析":"\n请重点展开第1-2点：行情价格区间和影响因素。","定价策略建议":"\n请重点展开第3点：如何根据成色/配件/保修定价。",
-            "价格谈判技巧":"\n请重点展开第4点：价格谈判技巧。","降价涨价时机":"\n请重点展开第5点：什么时候适合降价/涨价。",
-            "竞争分析":"\n请重点展开第1点：品类竞争情况。","细分品类推荐":"\n请重点展开第2点：哪些细分品类更值得做。",
-            "货源渠道建议":"\n请重点展开第3点：货源渠道建议。","利润空间分析":"\n请重点展开第4点：利润空间分析。",
-            "回复话术模板":"\n请重点展开第1点：常见客户问题及标准回复话术。","砍价应对技巧":"\n请重点展开第2点：如何应对砍价。",
-            "售后纠纷处理":"\n请重点展开第3点：如何处理售后纠纷。","好评引导技巧":"\n请重点展开第4点：如何引导好评。",
-        }
-        extra = focus_map.get(type_name, "")
-        return base.format(keyword=keyword) if keyword else base + extra
-
     def _init_assistant(self):
         mem_path = self.cfg.get("ui", {}).get("memory_path", os.path.join(self.cfg["paths"]["data_dir"], "ai_memory"))
         self.ai_assistant = AIAssistant(config=self.researcher.config, db=self.db, memory_path=mem_path, main_window=self)
         self.ai_assistant.load_memory()
         self.agent_mode = False
+        self.thinking_depth = "medium"
+        self.ai_assistant.thinking_depth = self.thinking_depth
 
     def _on_agent_mode_toggled(self, checked):
         self.agent_mode = checked

@@ -127,6 +127,7 @@ class AIAssistant:
             "data", "ai_memory"
         )
         self.main_window = main_window  # 用于调用GUI功能
+        self.thinking_depth = "medium"  # 思考深度: high / medium / low
 
     # ========== 记忆管理 ==========
 
@@ -401,11 +402,17 @@ class AIAssistant:
         if not url:
             raise ValueError("API地址未配置")
 
+        depth_params = {
+            "high":   {"temperature": 0.3, "max_tokens": 6000},
+            "medium": {"temperature": 0.7, "max_tokens": 3000},
+            "low":    {"temperature": 0.9, "max_tokens": 1500},
+        }
+        dp = depth_params.get(self.thinking_depth, depth_params["medium"])
         data = json.dumps({
             "model": self.config.get("model", "agnes-2.0-flash"),
             "messages": messages,
-            "temperature": 0.8,
-            "max_tokens": 3000,
+            "temperature": dp["temperature"],
+            "max_tokens": dp["max_tokens"],
         }).encode("utf-8")
 
         headers = {
@@ -451,11 +458,17 @@ class AIAssistant:
             yield "❌ API地址未配置"
             return
 
+        depth_params = {
+            "high":   {"temperature": 0.3, "max_tokens": 6000},
+            "medium": {"temperature": 0.7, "max_tokens": 3000},
+            "low":    {"temperature": 0.9, "max_tokens": 1500},
+        }
+        dp = depth_params.get(self.thinking_depth, depth_params["medium"])
         data = json.dumps({
             "model": self.config.get("model", "agnes-2.0-flash"),
             "messages": messages,
-            "temperature": 0.8,
-            "max_tokens": 3000,
+            "temperature": dp["temperature"],
+            "max_tokens": dp["max_tokens"],
             "stream": True,
         }).encode("utf-8")
 
