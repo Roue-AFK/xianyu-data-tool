@@ -660,7 +660,7 @@ class MainWindow(QMainWindow):
             QListWidget::item:hover {{ background:{C.primary_bg}; }}
             QListWidget::item:selected {{ background:{C.primary_bg}; color:{C.primary}; font-weight:bold; }}
             QMenu {{ background:{C.card}; border:1px solid {C.border}; border-radius:8px; padding:4px; }}
-            QMenu::item {{ padding:8px 28px; border-radius:4px; }}
+            QMenu::item {{ padding:8px 28px; border-radius:4px; color:{C.text}; }}
             QMenu::item:selected {{ background:{C.primary_bg}; color:{C.primary}; }}
         """)
 
@@ -1173,58 +1173,6 @@ class MainWindow(QMainWindow):
         cl.setSpacing(0)
         cl.setContentsMargins(4, 4, 4, 4)
 
-        # ── 顶部模型/模式选择栏 ──
-        top_row = QHBoxLayout()
-        top_row.setContentsMargins(10, 6, 10, 0)
-        top_row.setSpacing(6)
-
-        # 模型选择按钮组
-        self.model_btn_group = QFrame()
-        self.model_btn_group.setObjectName("modelGroup")
-        self.model_btn_group.setStyleSheet(f"QFrame#modelGroup {{ background:{C.bg}; border-radius:8px; border:1px solid {C.border}; }}")
-        mg = QHBoxLayout(self.model_btn_group)
-        mg.setContentsMargins(3, 3, 3, 3)
-        mg.setSpacing(1)
-
-        self._model_btns = {}
-        for key, label in [("agnes", "Agnes"), ("deepseek", "DS"), ("qwen", "通义")]:
-            btn = QPushButton(label)
-            btn.setCheckable(True)
-            btn.setFixedHeight(24)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: transparent; border: none; border-radius: 6px;
-                    padding: 2px 8px; font-size: 11px; color: {C.text};
-                }}
-                QPushButton:hover {{ color: {C.primary}; background: {C.card}; }}
-                QPushButton:checked {{ color: {C.primary}; font-weight: bold; background: {C.card}; }}
-            """)
-            btn.clicked.connect(lambda checked, k=key: self._on_model_switch(k))
-            mg.addWidget(btn)
-            self._model_btns[key] = btn
-        self._model_btns["agnes"].setChecked(True)
-        top_row.addWidget(self.model_btn_group)
-
-        top_row.addSpacing(4)
-
-        # 自动执行开关
-        auto_pill = QFrame()
-        auto_pill.setObjectName("autoPill")
-        auto_pill.setStyleSheet(f"QFrame#autoPill {{ background:{C.bg}; border-radius:8px; border:1px solid {C.border}; }}")
-        auto_pill.setCursor(Qt.CursorShape.PointingHandCursor)
-        apl = QHBoxLayout(auto_pill)
-        apl.setContentsMargins(8, 0, 10, 0)
-        apl.setSpacing(2)
-        self.agent_toggle = QCheckBox("自动")
-        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:11px; color:{C.text}; spacing:2px; border:none; background:transparent; }}")
-        self.agent_toggle.toggled.connect(self._on_agent_mode_toggled)
-        apl.addWidget(self.agent_toggle)
-        top_row.addWidget(auto_pill)
-
-        top_row.addStretch()
-        cl.addLayout(top_row)
-
         # ── 输入区 ──
         self.chat_input = QTextEdit()
         self.chat_input.setObjectName("chatInput")
@@ -1244,9 +1192,43 @@ class MainWindow(QMainWindow):
         # ── 底部工具栏 ──
         tool_row = QHBoxLayout()
         tool_row.setContentsMargins(6, 0, 4, 6)
-        tool_row.setSpacing(3)
+        tool_row.setSpacing(4)
 
-        # 思考深度选择器（pill风格，类似模型切换）
+        # 模型选择下拉按钮
+        model_btn = QPushButton("Agnes")
+        model_btn.setFixedHeight(26)
+        model_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        model_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.text}; font-weight: bold;
+                border: none; border-radius: 8px; padding: 2px 6px; font-size: 11px;
+            }}
+            QPushButton:hover {{ background: {C.bg}; color: {C.primary}; }}
+        """)
+        self._model_menu_btn = model_btn  # 保存引用用于切换时更新文字
+        model_menu = QMenu(self)
+        model_configs = [("agnes", "Agnes"), ("deepseek", "DS"), ("qwen", "通义")]
+        for key, label in model_configs:
+            action = model_menu.addAction(f"{'●' if key == 'agnes' else '○'} {label}")
+            action.triggered.connect(lambda checked, k=key, l=label: self._on_model_menu_select(k, l))
+        model_btn.setMenu(model_menu)
+        tool_row.addWidget(model_btn)
+
+        # 自动执行开关
+        auto_pill = QFrame()
+        auto_pill.setObjectName("autoPill")
+        auto_pill.setStyleSheet(f"QFrame#autoPill {{ background:{C.bg}; border-radius:8px; border:1px solid {C.border}; }}")
+        auto_pill.setCursor(Qt.CursorShape.PointingHandCursor)
+        apl = QHBoxLayout(auto_pill)
+        apl.setContentsMargins(8, 0, 10, 0)
+        apl.setSpacing(2)
+        self.agent_toggle = QCheckBox("自动")
+        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:11px; color:{C.text}; spacing:2px; border:none; background:transparent; }}")
+        self.agent_toggle.toggled.connect(self._on_agent_mode_toggled)
+        apl.addWidget(self.agent_toggle)
+        tool_row.addWidget(auto_pill)
+
+        # 思考深度选择器（pill风格）
         self.depth_btn_group = QFrame()
         self.depth_btn_group.setObjectName("depthGroup")
         self.depth_btn_group.setStyleSheet(
@@ -1270,7 +1252,7 @@ class MainWindow(QMainWindow):
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background: transparent; border: none; border-radius: 6px;
-                    padding: 1px 8px; font-size: 10px; color: {C.text};
+                    padding: 1px 6px; font-size: 10px; color: {C.text};
                 }}
                 QPushButton:hover {{ color: {C.purple}; background: {C.card}; }}
                 QPushButton:checked {{
@@ -1374,17 +1356,33 @@ class MainWindow(QMainWindow):
         self._add_welcome_message()
         return w
 
-    def _on_model_switch(self, key):
-        """切换AI模型"""
+    def _on_model_menu_select(self, key, label):
+        """通过下拉菜单切换AI模型"""
         info = MarketResearcher.API_PROVIDERS.get(key, {})
         if not info: return
         self.researcher.config["provider"] = key
         self.researcher.config["api_url"] = info.get("url", "")
         self.researcher.config["model"] = info.get("default_model", "")
         self.ai_assistant.config = self.researcher.config
-        # 更新按钮状态
-        for k, btn in self._model_btns.items():
-            btn.setChecked(k == key)
+        # 更新按钮文字 + 菜单勾选标记
+        self._model_menu_btn.setText(label)
+        menu = self._model_menu_btn.menu()
+        if menu:
+            for action in menu.actions():
+                txt = action.text()
+                action.setText(txt.replace("●", "○"))
+            sender = self.sender()
+            if sender:
+                sender.setText(sender.text().replace("○", "●"))
+
+    def _on_model_switch(self, key):
+        """切换AI模型（兼容旧接口）"""
+        info = MarketResearcher.API_PROVIDERS.get(key, {})
+        if not info: return
+        self.researcher.config["provider"] = key
+        self.researcher.config["api_url"] = info.get("url", "")
+        self.researcher.config["model"] = info.get("default_model", "")
+        self.ai_assistant.config = self.researcher.config
 
     def _on_depth_switch(self, key):
         """切换思考深度"""
