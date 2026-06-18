@@ -305,6 +305,7 @@ class MainWindow(QMainWindow):
         self.tab_widget = QTabWidget()
         self.tab_widget.setDocumentMode(True)
         self.tab_widget.addTab(self._dashboard(), "🏠 仪表盘")
+        self.tab_widget.addTab(self._chat_tab(), "💬 AI助手")
         self.tab_widget.addTab(self._research_tab(), "🔍 AI调研")
         self.tab_widget.addTab(self._data_tab(), "📊 数据预览")
         self.tab_widget.addTab(self._analysis_tab(), "📈 文案分析")
@@ -461,6 +462,186 @@ class MainWindow(QMainWindow):
         lay.addStretch()
         scroll.setWidget(w)
         return scroll
+
+    # ===== AI 对话助手 =====
+
+    def _chat_tab(self):
+        """AI 对话助手标签页"""
+        from PyQt6.QtWidgets import QSplitter, QListWidget, QListWidgetItem, QTextBrowser
+        from PyQt6.QtCore import QThread
+
+        w = QWidget()
+        w.setStyleSheet(f"background:{C.bg};")
+        main_layout = QHBoxLayout(w)
+        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 左侧场景面板
+        left_panel = QFrame()
+        left_panel.setFixedWidth(200)
+        left_panel.setStyleSheet(f"background:{C.card}; border-right:1px solid {C.border};")
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(12, 16, 12, 16)
+
+        scene_title = QLabel("📋 场景模板")
+        scene_title.setStyleSheet(f"font-size:14px; font-weight:bold; color:{C.text}; background:transparent;")
+        left_layout.addWidget(scene_title)
+
+        desc = QLabel("选择一个场景快速开始对话")
+        desc.setStyleSheet(f"font-size:11px; color:{C.text_muted}; background:transparent; margin-bottom:8px;")
+        desc.setWordWrap(True)
+        left_layout.addWidget(desc)
+
+        from core.assistant import AIAssistant
+        self.scene_list = QListWidget()
+        self.scene_list.setStyleSheet(f"""
+            QListWidget {{ background:transparent; border:none; }}
+            QListWidget::item {{ padding:10px 12px; border-radius:8px; margin:2px 0; color:{C.text}; }}
+            QListWidget::item:hover {{ background:{C.primary_bg}; }}
+            QListWidget::item:selected {{ background:{C.primary_bg}; color:{C.primary}; font-weight:bold; }}
+        """)
+        for name, info in AIAssistant.SCENARIOS.items():
+            item = QListWidgetItem(f"{info['icon']} {name}")
+            item.setData(Qt.ItemDataRole.UserRole, name)
+            self.scene_list.addItem(item)
+        self.scene_list.clicked.connect(self._on_scene_selected)
+        left_layout.addWidget(self.scene_list)
+
+        # 清空按钮
+        clear_btn = QPushButton("🗑 清空对话")
+        clear_btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.card}; border:1px solid {C.border}; margin-top:8px; }}
+            QPushButton:hover {{ border-color:{C.danger}; color:{C.danger}; }}
+        """)
+        clear_btn.clicked.connect(self._on_clear_chat)
+        left_layout.addWidget(clear_btn)
+
+        main_layout.addWidget(left_panel)
+
+        # 右侧对话区
+        right_panel = QFrame()
+        right_panel.setStyleSheet(f"background:{C.bg};")
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setSpacing(8)
+        right_layout.setContentsMargins(16, 12, 16, 12)
+
+        # 对话显示区
+        self.chat_display = QTextEdit()
+        self.chat_display.setReadOnly(True)
+        self.chat_display.setFont(QFont("Microsoft YaHei", 11))
+        self.chat_display.setStyleSheet(f"""
+            QTextEdit {{ background:{C.card}; color:{C.text}; border:1px solid {C.border};
+                        border-radius:12px; padding:16px; line-height:1.7; }}
+        """)
+        self.chat_display.setPlaceholderText(
+            "👋 你好！我是闲鱼运营助手。\n\n"
+            "我可以帮你：\n"
+            "• 📈 制定闲鱼运营策略\n"
+            "• ✍️ 优化商品标题和描述文案\n"
+            "• 💰 分析定价策略\n"
+            "• 🎯 提供选品建议\n"
+            "• 💬 客户沟通话术\n"
+            "• 📊 分析已采集的数据\n\n"
+            "选择左侧场景模板，或直接输入问题开始对话！"
+        )
+        right_layout.addWidget(self.chat_display)
+
+        # 输入区
+        input_row = QHBoxLayout()
+        input_row.setSpacing(8)
+
+        self.chat_input = QLineEdit()
+        self.chat_input.setPlaceholderText("输入你的问题，如：蓝牙耳机怎么定价？")
+        self.chat_input.setFixedHeight(42)
+        self.chat_input.returnPressed.connect(self._on_send_message)
+        input_row.addWidget(self.chat_input)
+
+        send_btn = QPushButton("发送 📤")
+        send_btn.setFixedHeight(42)
+        send_btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.primary}; color:white; font-weight:bold; border:none; padding:8px 20px; }}
+            QPushButton:hover {{ background:{C.primary_hover}; }}
+        """)
+        send_btn.clicked.connect(self._on_send_message)
+        input_row.addWidget(send_btn)
+
+        right_layout.addLayout(input_row)
+
+        # 状态提示
+        self.chat_status = QLabel("")
+        self.chat_status.setStyleSheet(f"font-size:11px; color:{C.text_muted}; background:transparent;")
+        right_layout.addWidget(self.chat_status)
+
+        main_layout.addWidget(right_panel)
+
+        # 初始化AI助手
+        self._init_assistant()
+        return w
+
+    def _init_assistant(self):
+        """初始化AI助手"""
+        from core.assistant import AIAssistant
+        from core.researcher import MarketResearcher
+        mr = MarketResearcher()
+        self.ai_assistant = AIAssistant(config=mr.config, db=self.db)
+
+    def _on_scene_selected(self):
+        """选择场景模板"""
+        item = self.scene_list.currentItem()
+        if not item:
+            return
+        scene_name = item.data(Qt.ItemDataRole.UserRole)
+        keyword = self.nav_keyword.text().strip() or ""
+
+        if scene_name == "自由对话":
+            self.chat_display.append(f"\n---\n💡 **自由对话模式**，请输入你的问题\n")
+            return
+
+        self.chat_display.append(f"\n---\n📌 **已选择场景：{scene_name}**\n")
+        QApplication.processEvents()
+
+        self.chat_status.setText("⏳ AI 思考中...")
+        self.chat_status.setStyleSheet(f"font-size:11px; color:{C.warning}; background:transparent;")
+        QApplication.processEvents()
+
+        reply = self.ai_assistant.chat_with_scenario(scene_name, keyword)
+        if reply:
+            self.chat_display.append(f"\n🤖 **AI助手：**\n\n{reply}\n")
+
+        self.chat_status.setText("✅ 就绪")
+        self.chat_status.setStyleSheet(f"font-size:11px; color:{C.success}; background:transparent;")
+        self.tab_widget.setCurrentIndex(1)
+
+    def _on_send_message(self):
+        """发送消息"""
+        msg = self.chat_input.text().strip()
+        if not msg:
+            return
+
+        self.chat_input.clear()
+        self.chat_display.append(f"\n---\n🧑 **你：** {msg}\n")
+        QApplication.processEvents()
+
+        self.chat_status.setText("⏳ AI 思考中...")
+        self.chat_status.setStyleSheet(f"font-size:11px; color:{C.warning}; background:transparent;")
+        QApplication.processEvents()
+
+        keyword = self.nav_keyword.text().strip() or ""
+        reply = self.ai_assistant.chat(msg, keyword)
+
+        self.chat_display.append(f"🤖 **AI助手：**\n\n{reply}\n")
+
+        self.chat_status.setText("✅ 就绪")
+        self.chat_status.setStyleSheet(f"font-size:11px; color:{C.success}; background:transparent;")
+
+        # 滚动到底部
+        self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
+
+    def _on_clear_chat(self):
+        """清空对话"""
+        self.ai_assistant.clear_history()
+        self.chat_display.clear()
+        self.chat_display.setPlaceholderText("对话已清空，选择一个场景或输入问题开始新对话。")
 
     # ===== AI调研 =====
 
@@ -889,6 +1070,8 @@ class MainWindow(QMainWindow):
         mr.save_config(ai_config)
         # 更新当前实例的配置
         self.researcher = MarketResearcher(ai_config)
+        # 同时更新AI助手的配置
+        self._init_assistant()
 
         QMessageBox.information(self, "设置已保存", "<h3>✅ 所有设置已保存</h3><p>新设置将在下次操作时生效</p>")
         return scroll
