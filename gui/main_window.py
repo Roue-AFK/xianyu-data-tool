@@ -1293,13 +1293,11 @@ class MainWindow(QMainWindow):
 
     def _show_typing(self):
         self.chat_status_badge.set_state("思考中...", C.warning)
-        self.chat_provider_label.setText(f"({self.researcher.config.get('provider','').upper()})")
         self.typing_indicator.start()
 
     def _hide_typing(self):
         self.typing_indicator.stop()
         self.chat_status_badge.set_state("就绪", C.success)
-        self.chat_provider_label.setText("")
 
     def _on_quick_tag(self, tag_name):
         kw = self.nav_keyword.text().strip() or ""
