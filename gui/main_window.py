@@ -1176,49 +1176,264 @@ class MainWindow(QMainWindow):
         self.chat_scroll.setWidget(self.chat_msg_container)
         vl.addWidget(self.chat_scroll)
 
-        # ═══════ 底部输入栏 ═══════
+        # ═══════ 底部输入卡片 (WorkBuddy风格) ═══════
         bottom = QFrame()
-        bottom.setStyleSheet(f"background:{C.card}; border-top:1px solid {C.border};")
+        bottom.setStyleSheet(f"background:transparent; border:none;")
         bl = QVBoxLayout(bottom)
-        bl.setSpacing(4)
-        bl.setContentsMargins(16, 8, 16, 10)
+        bl.setSpacing(0)
+        bl.setContentsMargins(16, 0, 16, 12)
 
-        ir = QHBoxLayout()
-        ir.setSpacing(8)
+        # 输入卡片主体
+        card = QFrame()
+        card.setStyleSheet(f"""
+            QFrame {{
+                background: {C.card};
+                border: 1px solid {C.border};
+                border-radius: 16px;
+            }}
+            QFrame:hover {{ border-color: {C.primary}60; }}
+        """)
+        cl = QVBoxLayout(card)
+        cl.setSpacing(0)
+        cl.setContentsMargins(0, 0, 0, 0)
+
+        # ── 顶部模型/模式选择栏 ──
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(14, 10, 14, 4)
+        top_row.setSpacing(6)
+
+        # 模型选择按钮组
+        self.model_btn_group = QFrame()
+        self.model_btn_group.setStyleSheet(f"background:{C.bg}; border-radius:8px; border:1px solid {C.border};")
+        mg = QHBoxLayout(self.model_btn_group)
+        mg.setContentsMargins(3, 3, 3, 3)
+        mg.setSpacing(2)
+
+        self._model_btns = {}
+        for key, label in [("agnes", "Agnes"), ("deepseek", "DeepSeek"), ("qwen", "通义")]:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setFixedHeight(26)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent; border: none; border-radius: 6px;
+                    padding: 2px 10px; font-size: 11px; color: {C.text_dim};
+                }}
+                QPushButton:hover {{ color: {C.text}; background: {C.card}; }}
+                QPushButton:checked {{ color: {C.primary}; font-weight: bold; background: {C.card}; }}
+            """)
+            btn.clicked.connect(lambda checked, k=key: self._on_model_switch(k))
+            mg.addWidget(btn)
+            self._model_btns[key] = btn
+        self._model_btns["agnes"].setChecked(True)
+        top_row.addWidget(self.model_btn_group)
+
+        top_row.addSpacing(6)
+
+        # 自动执行开关
+        auto_pill = QFrame()
+        auto_pill.setStyleSheet(f"background:{C.bg}; border-radius:8px; border:1px solid {C.border};")
+        auto_pill.setCursor(Qt.CursorShape.PointingHandCursor)
+        apl = QHBoxLayout(auto_pill)
+        apl.setContentsMargins(8, 0, 10, 0)
+        apl.setSpacing(4)
+        self.agent_toggle = QCheckBox("自动执行")
+        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:11px; color:{C.text_dim}; spacing:3px; border:none; background:transparent; }}")
+        self.agent_toggle.toggled.connect(self._on_agent_mode_toggled)
+        apl.addWidget(self.agent_toggle)
+        top_row.addWidget(auto_pill)
+
+        top_row.addStretch()
+        cl.addLayout(top_row)
+
+        # ── 输入区 ──
         self.chat_input = QTextEdit()
         self.chat_input.setPlaceholderText("输入消息... (Enter发送，Shift+Enter换行)")
-        self.chat_input.setFixedHeight(52)
+        self.chat_input.setFixedHeight(56)
         self.chat_input.setAcceptRichText(False)
         self.chat_input.setStyleSheet(f"""
             QTextEdit {{
-                border: 1px solid {C.border}; border-radius: 10px; padding: 8px 12px;
-                font-size:13px; background:{C.bg}; color:{C.text};
+                border: none; border-radius: 0; padding: 6px 18px 0px 18px;
+                font-size: 13px; background: transparent; color: {C.text};
             }}
-            QTextEdit:focus {{ border-color:{C.primary}; }}
+            QTextEdit:focus {{ border: none; }}
         """)
         self.chat_input.installEventFilter(self)
-        ir.addWidget(self.chat_input)
+        cl.addWidget(self.chat_input)
 
-        self.typing_indicator = TypingIndicator()
-        self.typing_indicator.hide()
-        ir.addWidget(self.typing_indicator)
+        # ── 底部工具栏 ──
+        tool_row = QHBoxLayout()
+        tool_row.setContentsMargins(10, 2, 6, 8)
+        tool_row.setSpacing(4)
 
-        send_btn = QPushButton("发送")
-        send_btn.setFixedSize(64, 52)
+        # Craft 按钮
+        craft_btn = QPushButton("Craft")
+        craft_btn.setFixedHeight(28)
+        craft_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        craft_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.primary}15; color: {C.primary}; font-weight: bold;
+                border: none; border-radius: 8px; padding: 2px 12px; font-size: 11px;
+            }}
+            QPushButton:hover {{ background: {C.primary}25; }}
+        """)
+        craft_btn.clicked.connect(lambda: self.chat_input.setFocus())
+        tool_row.addWidget(craft_btn)
+
+        # 技能按钮
+        skill_btn = QPushButton("⚡ 技能")
+        skill_btn.setFixedHeight(28)
+        skill_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        skill_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.text_dim};
+                border: none; border-radius: 8px; padding: 2px 10px; font-size: 11px;
+            }}
+            QPushButton:hover {{ background: {C.bg}; color: {C.text}; }}
+        """)
+        skill_menu = QMenu(self)
+        for name in ["运营策略", "文案优化", "定价分析", "选品建议", "客户沟通"]:
+            action = skill_menu.addAction(f"{AIAssistant.SCENARIOS[name]['icon']} {name}")
+            action.triggered.connect(lambda checked, n=name: self._on_quick_tag(n))
+        skill_btn.setMenu(skill_menu)
+        tool_row.addWidget(skill_btn)
+
+        # 场景按钮
+        scene_btn = QPushButton("场景")
+        scene_btn.setFixedHeight(28)
+        scene_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        scene_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.text_dim};
+                border: none; border-radius: 8px; padding: 2px 10px; font-size: 11px;
+            }}
+            QPushButton:hover {{ background: {C.bg}; color: {C.text}; }}
+        """)
+        scene_menu = QMenu(self)
+        for name in ["自由对话", "运营策略", "文案优化", "定价分析", "选品建议", "客户沟通"]:
+            icon = AIAssistant.SCENARIOS.get(name, {}).get("icon", "💡")
+            action = scene_menu.addAction(f"{icon} {name}")
+            action.triggered.connect(lambda checked, n=name: self._on_scene_menu_select(n))
+        scene_btn.setMenu(scene_menu)
+        tool_row.addWidget(scene_btn)
+
+        # + 更多按钮
+        more_btn = QPushButton("+")
+        more_btn.setFixedSize(28, 28)
+        more_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        more_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {C.text_dim}; font-size: 16px; font-weight: bold;
+                border: none; border-radius: 8px;
+            }}
+            QPushButton:hover {{ background: {C.bg}; color: {C.text}; }}
+        """)
+        more_menu = QMenu(self)
+        more_menu.addAction("📊 数据概览", lambda: self._on_agent_data_overview())
+        more_menu.addAction("📥 导出Excel", lambda: self._on_agent_export())
+        more_menu.addAction("📈 生成报告", lambda: self._on_agent_report())
+        more_menu.addAction("🔍 市场调研", lambda: self._on_agent_research())
+        more_menu.addSeparator()
+        more_menu.addAction("🗑 清空对话", self._on_clear_chat)
+        more_btn.setMenu(more_menu)
+        tool_row.addWidget(more_btn)
+
+        tool_row.addStretch()
+
+        # 状态徽章
+        self.chat_status_badge = StatusBadge("就绪", C.success)
+        tool_row.addWidget(self.chat_status_badge)
+
+        tool_row.addSpacing(4)
+
+        # 发送圆形按钮
+        send_btn = QPushButton("↑")
+        send_btn.setFixedSize(34, 34)
+        send_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         send_btn.setStyleSheet(f"""
-            QPushButton {{ background:{C.primary}; color:white; font-weight:bold; border:none; border-radius:10px; font-size:13px; }}
-            QPushButton:hover {{ background:{C.primary_hover}; }}
+            QPushButton {{
+                background: {C.primary}; color: white; font-size: 16px; font-weight: bold;
+                border: none; border-radius: 17px;
+            }}
+            QPushButton:hover {{ background: {C.primary_hover}; }}
+            QPushButton:pressed {{ background: #E8951E; }}
+            QPushButton:disabled {{ background: {C.border}; color: {C.text_muted}; }}
         """)
         send_btn.clicked.connect(self._on_send_message)
-        ir.addWidget(send_btn)
-        bl.addLayout(ir)
+        tool_row.addWidget(send_btn)
 
+        cl.addLayout(tool_row)
+        bl.addWidget(card)
         vl.addWidget(bottom)
 
         self._init_assistant()
-        self._populate_chat_scenes()
         self._add_welcome_message()
         return w
+
+    def _on_model_switch(self, key):
+        """切换AI模型"""
+        info = MarketResearcher.API_PROVIDERS.get(key, {})
+        if not info: return
+        self.researcher.config["provider"] = key
+        self.researcher.config["api_url"] = info.get("url", "")
+        self.researcher.config["model"] = info.get("default_model", "")
+        self.ai_assistant.config = self.researcher.config
+        # 更新按钮状态
+        for k, btn in self._model_btns.items():
+            btn.setChecked(k == key)
+
+    def _on_scene_menu_select(self, name):
+        """场景菜单选择"""
+        if name == "自由对话": return
+        kw = self.nav_keyword.text().strip() or ""
+        if not kw:
+            self._append_message("ai", f"📌 请先在导航栏输入关键词，再使用「{name}」场景。")
+            return
+        self._append_message("user", f"{name}")
+        QApplication.processEvents()
+        prompt = AIAssistant.SCENARIOS.get(name, {}).get("prompt", "").format(keyword=kw)
+        self._start_stream(prompt, kw)
+
+    def _on_agent_data_overview(self):
+        result = self.ai_assistant._tool_get_data()
+        self._append_message("ai", result)
+
+    def _on_agent_export(self):
+        try:
+            from core.exporter import Exporter
+            exporter = Exporter(self.db)
+            path = exporter.export_to_excel()
+            self._log(f"导出: {path}", "success")
+            self._append_message("ai", f"✅ **导出成功！**\n\n`{path}`")
+        except Exception as e:
+            self._append_message("ai", f"❌ 导出失败: {e}")
+
+    def _on_agent_report(self):
+        try:
+            from core.analyzer import Analyzer
+            analyzer = Analyzer(self.db)
+            md = analyzer.generate_markdown_report(None, "全部")
+            self.analysis_text.setMarkdown(md)
+            self.tab_widget.setCurrentIndex(4)
+            self._append_message("ai", "✅ **分析报告已生成！** 切换到「文案分析」标签页查看。")
+        except Exception as e:
+            self._append_message("ai", f"❌ 生成失败: {e}")
+
+    def _on_agent_research(self):
+        kw = self.nav_keyword.text().strip() or self.chat_input.toPlainText().strip()
+        if not kw:
+            self._append_message("ai", "请先在导航栏输入调研关键词。")
+            return
+        try:
+            from core.researcher import MarketResearcher
+            mr = MarketResearcher()
+            md = mr.generate_markdown_report(kw)
+            self.research_text.setMarkdown(md)
+            self.tab_widget.setCurrentIndex(2)
+            self._append_message("ai", f"✅ **市场调研「{kw}」已完成！** 切换到「AI调研」标签页查看。")
+        except Exception as e:
+            self._append_message("ai", f"❌ 调研失败: {e}")
 
     def eventFilter(self, obj, event):
         """拦截Enter发送消息"""
