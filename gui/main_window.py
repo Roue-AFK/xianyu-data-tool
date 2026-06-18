@@ -1,6 +1,6 @@
 """
-闲鱼数据调研工具 - 主窗口 GUI v6.0
-左下角设置面板、AI配置套件、滚轮禁用、即时保存
+闲鱼数据调研工具 - 主窗口 GUI v7.0
+齿轮按钮设置弹窗、右键删除、AI Agent自主操作
 """
 
 import os
@@ -16,9 +16,10 @@ from PyQt6.QtWidgets import (
     QComboBox, QStatusBar, QFormLayout, QDoubleSpinBox,
     QGridLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem,
     QSplitter, QApplication, QSlider, QStackedWidget, QSizePolicy,
+    QDialog, QDialogButtonBox, QMenu, QFileDialog,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont, QColor, QTextCursor, QAction, QWheelEvent
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint
+from PyQt6.QtGui import QFont, QColor, QTextCursor, QAction, QWheelEvent, QIcon
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -177,6 +178,324 @@ class CrawlerWorker(QThread):
         if hasattr(self, 'crawler') and self.crawler: self.crawler.stop()
 
 
+# ========== 设置弹窗 ==========
+
+class SettingsDialog(QDialog):
+    """弹出式设置对话框，齿轮按钮触发"""
+
+    def __init__(self, parent, researcher, cfg):
+        super().__init__(parent)
+        self.researcher = researcher
+        self.cfg = cfg
+        self._init_ui()
+        self._load_settings()
+
+    def _init_ui(self):
+        self.setWindowTitle("⚙️ 设置")
+        self.setMinimumSize(500, 600)
+        self.resize(520, 650)
+        self.setModal(True)
+        self.setStyleSheet(f"""
+            QDialog {{ background:{C.card}; }}
+            QLabel {{ color:{C.text}; }}
+            QGroupBox {{ font-weight:bold; color:{C.text}; border:1px solid {C.border}; border-radius:10px; margin-top:14px; padding:20px 14px 14px 14px; background:{C.card}; }}
+            QGroupBox::title {{ subcontrol-origin:margin; left:14px; padding:0 6px; color:{C.primary}; }}
+            QLineEdit, QSpinBox, QComboBox, QDoubleSpinBox {{
+                border:2px solid {C.input_border}; border-radius:8px;
+                padding:8px 12px; font-size:13px; background:{C.input_bg}; color:{C.text};
+            }}
+            QLineEdit:focus, QSpinBox:focus, QComboBox:focus, QDoubleSpinBox:focus {{ border-color:{C.input_focus}; background:{C.primary_bg}; }}
+            QCheckBox {{ color:{C.text}; spacing:8px; }}
+            QCheckBox::indicator {{ width:18px; height:18px; border:2px solid {C.border}; border-radius:4px; background:{C.card}; }}
+            QCheckBox::indicator:checked {{ background:{C.primary}; border-color:{C.primary}; }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        # 滚动区域
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { background:transparent; border:none; }")
+
+        sw = QWidget()
+        sw.setStyleSheet("background:transparent;")
+        sl = QVBoxLayout(sw)
+        sl.setSpacing(10)
+        sl.setContentsMargins(4, 4, 4, 4)
+
+        # === AI 设置 ===
+        ai_g = QGroupBox("🤖 AI 配置")
+        ai_l = QFormLayout(ai_g)
+        ai_l.setSpacing(8)
+
+        self.cfg_ai_provider = NoWheelComboBox()
+        for key, info in MarketResearcher.API_PROVIDERS.items():
+            self.cfg_ai_provider.addItem(f"{info['name']}", key)
+        self.cfg_ai_provider.currentIndexChanged.connect(self._on_cfg_provider_changed)
+        ai_l.addRow("提供商:", self.cfg_ai_provider)
+
+        self.cfg_ai_model = NoWheelComboBox()
+        self.cfg_ai_model.setEditable(True)
+        self.cfg_ai_model.setToolTip("选择或输入模型名称")
+        ai_l.addRow("模型:", self.cfg_ai_model)
+
+        self.cfg_ai_enabled = QCheckBox("启用AI助手和调研")
+        ai_l.addRow("", self.cfg_ai_enabled)
+
+        self.cfg_ai_key = QLineEdit()
+        self.cfg_ai_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.cfg_ai_key.setPlaceholderText("sk-...")
+        ai_l.addRow("API Key:", self.cfg_ai_key)
+
+        self.cfg_ai_link = QLabel("")
+        self.cfg_ai_link.setOpenExternalLinks(True)
+        self.cfg_ai_link.setStyleSheet(f"color:{C.info}; font-size:10px; background:transparent;")
+        self.cfg_ai_link.setWordWrap(True)
+        ai_l.addRow("", self.cfg_ai_link)
+
+        self.cfg_ai_status = QLabel("")
+        self.cfg_ai_status.setStyleSheet("font-size:10px; background:transparent;")
+        self.cfg_ai_status.setWordWrap(True)
+        ai_l.addRow("", self.cfg_ai_status)
+
+        test_btn = QPushButton("🧪 测试连接")
+        test_btn.setStyleSheet(f"QPushButton {{ background:{C.info}; color:white; font-weight:bold; padding:8px; border:none; border-radius:8px; }} QPushButton:hover {{ background:#40A9FF; }}")
+        test_btn.clicked.connect(self._on_test_ai)
+        ai_l.addRow("", test_btn)
+
+        sl.addWidget(ai_g)
+
+        # === 防封设置 ===
+        ab_g = QGroupBox("🛡 防封策略")
+        ab_l = QFormLayout(ab_g)
+        ab_l.setSpacing(8)
+
+        self.cfg_min_delay = NoWheelDoubleSpinBox()
+        self.cfg_min_delay.setRange(1.0, 30.0)
+        self.cfg_min_delay.setSuffix(" 秒")
+        ab_l.addRow("最小间隔:", self.cfg_min_delay)
+
+        self.cfg_max_delay = NoWheelDoubleSpinBox()
+        self.cfg_max_delay.setRange(1.0, 60.0)
+        self.cfg_max_delay.setSuffix(" 秒")
+        ab_l.addRow("最大间隔:", self.cfg_max_delay)
+
+        self.cfg_max_items = NoWheelSpinBox()
+        self.cfg_max_items.setRange(10, 200)
+        self.cfg_max_items.setSuffix(" 条")
+        ab_l.addRow("最大采集:", self.cfg_max_items)
+        sl.addWidget(ab_g)
+
+        # === 采集设置 ===
+        cl_g = QGroupBox("📷 采集")
+        cl_l = QVBoxLayout(cl_g)
+        cl_l.setSpacing(4)
+        self.cfg_download_img = QCheckBox("下载商品图片")
+        cl_l.addWidget(self.cfg_download_img)
+        self.cfg_headless = QCheckBox("后台运行浏览器")
+        self.cfg_headless.setToolTip("浏览器不可见，速度更快但无法手动登录")
+        cl_l.addWidget(self.cfg_headless)
+        sl.addWidget(cl_g)
+
+        # === 界面设置 ===
+        ui_g = QGroupBox("🎨 界面")
+        ui_l = QVBoxLayout(ui_g)
+        ui_l.setSpacing(4)
+        self.cfg_show_welcome = QCheckBox("显示欢迎横幅")
+        self.cfg_show_welcome.setChecked(True)
+        ui_l.addWidget(self.cfg_show_welcome)
+        sl.addWidget(ui_g)
+
+        # === 记忆保存路径 ===
+        mem_g = QGroupBox("🧠 AI记忆")
+        mem_l = QHBoxLayout(mem_g)
+        mem_l.setSpacing(8)
+        self.cfg_memory_path = QLineEdit()
+        self.cfg_memory_path.setPlaceholderText("AI对话记忆保存路径...")
+        self.cfg_memory_path.setReadOnly(True)
+        mem_l.addWidget(self.cfg_memory_path)
+        browse_btn = QPushButton("📂 浏览")
+        browse_btn.clicked.connect(self._on_browse_memory_path)
+        mem_l.addWidget(browse_btn)
+        sl.addWidget(mem_g)
+
+        # === 配置套件 ===
+        suite_g = QGroupBox("📦 配置套件")
+        suite_l = QVBoxLayout(suite_g)
+        suite_l.setSpacing(4)
+
+        self.suite_combo = NoWheelComboBox()
+        self.suite_combo.addItem("自定义配置", None)
+        self.suite_combo.addItem("🛡 安全优先（慢但稳）", "safe")
+        self.suite_combo.addItem("⚡ 平衡模式（推荐）", "balanced")
+        self.suite_combo.addItem("🚀 快速采集", "fast")
+        self.suite_combo.currentIndexChanged.connect(self._on_suite_changed)
+        suite_l.addWidget(self.suite_combo)
+        sl.addWidget(suite_g)
+
+        sl.addStretch()
+
+        scroll.setWidget(sw)
+        layout.addWidget(scroll)
+
+        # 按钮
+        btn_box = QDialogButtonBox()
+        save_btn = QPushButton("💾 保存设置")
+        save_btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.primary}; color:white; font-weight:bold; padding:10px 24px; border:none; border-radius:8px; font-size:14px; }}
+            QPushButton:hover {{ background:{C.primary_hover}; }}
+        """)
+        save_btn.clicked.connect(self._save_and_close)
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setStyleSheet(f"QPushButton {{ background:{C.card}; color:{C.text}; border:1px solid {C.border}; padding:10px 24px; border-radius:8px; }}")
+        cancel_btn.clicked.connect(self.reject)
+        btn_box.addButton(save_btn, QDialogButtonBox.ButtonRole.AcceptRole)
+        btn_box.addButton(cancel_btn, QDialogButtonBox.ButtonRole.RejectRole)
+        layout.addWidget(btn_box)
+
+    def _on_cfg_provider_changed(self, idx):
+        key = self.cfg_ai_provider.itemData(idx)
+        if not key: return
+        info = MarketResearcher.API_PROVIDERS.get(key, {})
+
+        self.cfg_ai_model.clear()
+        models = {
+            "agnes": ["agnes-2.0-flash"],
+            "deepseek": ["deepseek-chat", "deepseek-reasoner"],
+            "qwen": ["qwen-plus", "qwen-max", "qwen-turbo"],
+            "openai": ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"],
+            "custom": [],
+        }
+        for m in models.get(key, []):
+            self.cfg_ai_model.addItem(m)
+
+        if info.get("get_key_url"):
+            self.cfg_ai_link.setText(f"<a href='{info['get_key_url']}'>🔑 获取Key</a>")
+        else:
+            self.cfg_ai_link.setText("")
+
+    def _on_suite_changed(self, idx):
+        key = self.suite_combo.itemData(idx)
+        if key == "safe":
+            self.cfg_min_delay.setValue(5.0)
+            self.cfg_max_delay.setValue(12.0)
+            self.cfg_max_items.setValue(50)
+        elif key == "balanced":
+            self.cfg_min_delay.setValue(2.0)
+            self.cfg_max_delay.setValue(5.0)
+            self.cfg_max_items.setValue(80)
+        elif key == "fast":
+            self.cfg_min_delay.setValue(1.0)
+            self.cfg_max_delay.setValue(2.0)
+            self.cfg_max_items.setValue(100)
+
+    def _on_browse_memory_path(self):
+        path = QFileDialog.getExistingDirectory(self, "选择AI记忆保存目录")
+        if path:
+            self.cfg_memory_path.setText(path)
+
+    def _load_settings(self):
+        # AI 配置
+        ai_config = self.researcher.config
+        self.cfg_ai_enabled.setChecked(ai_config.get("enabled", False))
+        self.cfg_ai_key.setText(ai_config.get("api_key", ""))
+        self.cfg_ai_model.setCurrentText(ai_config.get("model", ""))
+
+        prov = ai_config.get("provider", "agnes")
+        for i in range(self.cfg_ai_provider.count()):
+            if self.cfg_ai_provider.itemData(i) == prov:
+                self.cfg_ai_provider.setCurrentIndex(i)
+                break
+
+        # 防封
+        self.cfg_min_delay.setValue(self.cfg["anti_ban"]["min_delay"])
+        self.cfg_max_delay.setValue(self.cfg["anti_ban"]["max_delay"])
+        self.cfg_max_items.setValue(self.cfg["anti_ban"]["max_items_per_session"])
+
+        # 采集
+        self.cfg_download_img.setChecked(self.cfg["collection"]["download_images"])
+        self.cfg_headless.setChecked(self.cfg["xianyu"].get("headless", False))
+
+        # 记忆路径
+        mem_path = self.cfg.get("ui", {}).get("memory_path", os.path.join(self.cfg["paths"]["data_dir"], "ai_memory"))
+        self.cfg_memory_path.setText(mem_path)
+
+    def _on_test_ai(self):
+        key = self.cfg_ai_key.text().strip()
+        model = self.cfg_ai_model.currentText().strip()
+        prov = self.cfg_ai_provider.currentData()
+        info = MarketResearcher.API_PROVIDERS.get(prov, {})
+        url = info.get("url", "")
+
+        if not key or not url:
+            self.cfg_ai_status.setText("❌ 请填写 API Key")
+            self.cfg_ai_status.setStyleSheet(f"font-size:10px; color:{C.danger}; background:transparent;")
+            return
+
+        self.cfg_ai_status.setText("⏳ 测试中...")
+        self.cfg_ai_status.setStyleSheet(f"font-size:10px; color:{C.warning}; background:transparent;")
+        QApplication.processEvents()
+
+        try:
+            mr = MarketResearcher({"enabled": True, "provider": prov, "api_key": key, "api_url": url, "model": model})
+            result = mr.research("iPhone")
+            if result.get("ai_powered"):
+                self.cfg_ai_status.setText(f"✅ 连接成功！")
+                self.cfg_ai_status.setStyleSheet(f"font-size:10px; color:{C.success}; background:transparent;")
+            else:
+                self.cfg_ai_status.setText("⚠ 连接成功但降级到本地")
+                self.cfg_ai_status.setStyleSheet(f"font-size:10px; color:{C.warning}; background:transparent;")
+        except Exception as e:
+            self.cfg_ai_status.setText(f"❌ {str(e)[:80]}")
+            self.cfg_ai_status.setStyleSheet(f"font-size:10px; color:{C.danger}; background:transparent;")
+
+    def _save_and_close(self):
+        """保存设置到父窗口"""
+        parent = self.parent()
+        if not isinstance(parent, MainWindow):
+            self.accept()
+            return
+
+        parent.cfg["anti_ban"]["min_delay"] = self.cfg_min_delay.value()
+        parent.cfg["anti_ban"]["max_delay"] = self.cfg_max_delay.value()
+        parent.cfg["anti_ban"]["max_items_per_session"] = self.cfg_max_items.value()
+        parent.cfg["collection"]["download_images"] = self.cfg_download_img.isChecked()
+        parent.cfg["xianyu"]["headless"] = self.cfg_headless.isChecked()
+        if "ui" not in parent.cfg:
+            parent.cfg["ui"] = {}
+        parent.cfg["ui"]["memory_path"] = self.cfg_memory_path.text().strip()
+        parent.cfg["ui"]["show_welcome"] = self.cfg_show_welcome.isChecked()
+        save_user_config(parent.cfg)
+
+        prov = self.cfg_ai_provider.currentData()
+        info = MarketResearcher.API_PROVIDERS.get(prov, {})
+        ai_config = {
+            "enabled": self.cfg_ai_enabled.isChecked(),
+            "provider": prov,
+            "api_key": self.cfg_ai_key.text().strip(),
+            "api_url": info.get("url", ""),
+            "model": self.cfg_ai_model.currentText().strip(),
+        }
+        mr = MarketResearcher()
+        mr.save_config(ai_config)
+        parent.researcher = MarketResearcher(ai_config)
+        parent._init_assistant()
+
+        # 更新AI记忆路径
+        mem_path = self.cfg_memory_path.text().strip()
+        if mem_path and hasattr(parent, 'ai_assistant'):
+            parent.ai_assistant.set_memory_path(mem_path)
+
+        # 更新欢迎横幅
+        if hasattr(parent, 'welcome_banner'):
+            parent.welcome_banner.setVisible(self.cfg_show_welcome.isChecked())
+
+        QMessageBox.information(self, "✅ 设置已保存", "所有配置已保存并生效")
+        self.accept()
+
+
 # ========== 主窗口 ==========
 
 class MainWindow(QMainWindow):
@@ -190,12 +509,11 @@ class MainWindow(QMainWindow):
         self.worker = None
         self.current_task_id = None
         self._init_ui()
-        self._load_settings_to_panel()
         self._load_task_history()
         self._refresh_dashboard()
 
     def _init_ui(self):
-        self.setWindowTitle("🐟 闲鱼数据调研工具 v6.0")
+        self.setWindowTitle("🐟 闲鱼数据调研工具 v7.0")
         self.setMinimumSize(1200, 800)
         self.resize(1350, 900)
 
@@ -244,6 +562,9 @@ class MainWindow(QMainWindow):
             QListWidget::item {{ padding:10px 12px; border-radius:8px; margin:2px 0; color:{C.text}; }}
             QListWidget::item:hover {{ background:{C.primary_bg}; }}
             QListWidget::item:selected {{ background:{C.primary_bg}; color:{C.primary}; font-weight:bold; }}
+            QMenu {{ background:{C.card}; border:1px solid {C.border}; border-radius:8px; padding:4px; }}
+            QMenu::item {{ padding:8px 28px; border-radius:4px; }}
+            QMenu::item:selected {{ background:{C.primary_bg}; color:{C.primary}; }}
         """)
 
         central = QWidget()
@@ -254,15 +575,7 @@ class MainWindow(QMainWindow):
 
         self._navbar(main_layout)
 
-        # 主体：标签页 + 左下设置面板
-        body = QHBoxLayout()
-        body.setSpacing(0)
-        body.setContentsMargins(0, 0, 0, 0)
-
-        # 左下设置面板
-        self._settings_panel(body)
-
-        # 标签页区域
+        # 标签页区域（不再有左下设置面板）
         self.tab_widget = QTabWidget()
         self.tab_widget.setDocumentMode(True)
         self.tab_widget.addTab(self._dashboard(), "🏠 仪表盘")
@@ -271,9 +584,8 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self._data_tab(), "📊 数据预览")
         self.tab_widget.addTab(self._analysis_tab(), "📈 文案分析")
         self.tab_widget.addTab(self._log_tab(), "📋 运行日志")
-        body.addWidget(self.tab_widget)
+        main_layout.addWidget(self.tab_widget)
 
-        main_layout.addLayout(body)
         self.status_bar = self.statusBar()
         self.status_bar.showMessage("🟢 就绪")
         self.progress_bar = QProgressBar()
@@ -283,267 +595,6 @@ class MainWindow(QMainWindow):
         self.progress_bar.setMaximumWidth(300)
         self.status_bar.addPermanentWidget(self.progress_bar)
 
-    # ===== 左下设置面板 =====
-
-    def _settings_panel(self, body):
-        """左下角设置面板"""
-        panel = QFrame()
-        panel.setFixedWidth(280)
-        panel.setStyleSheet(f"""
-            QFrame {{ background:{C.panel_bg}; border-right:1px solid {C.border}; }}
-        """)
-        layout = QVBoxLayout(panel)
-        layout.setSpacing(6)
-        layout.setContentsMargins(10, 8, 10, 8)
-
-        # 标题
-        header = QLabel("⚙️ 设置")
-        header.setStyleSheet(f"font-size:15px; font-weight:bold; color:{C.text}; background:transparent; padding:4px;")
-        layout.addWidget(header)
-
-        # 滚动区域
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(f"QScrollArea {{ background:transparent; border:none; }}")
-
-        sw = QWidget()
-        sw.setStyleSheet("background:transparent;")
-        sl = QVBoxLayout(sw)
-        sl.setSpacing(4)
-        sl.setContentsMargins(2, 2, 2, 2)
-
-        # === AI 设置 ===
-        ai_g = QGroupBox("🤖 AI 配置")
-        ai_l = QVBoxLayout(ai_g)
-        ai_l.setSpacing(6)
-
-        ai_l.addWidget(QLabel("提供商:"))
-        self.cfg_ai_provider = NoWheelComboBox()
-        for key, info in MarketResearcher.API_PROVIDERS.items():
-            self.cfg_ai_provider.addItem(f"{info['name']}", key)
-        self.cfg_ai_provider.currentIndexChanged.connect(self._on_cfg_provider_changed)
-        ai_l.addWidget(self.cfg_ai_provider)
-
-        ai_l.addWidget(QLabel("模型:"))
-        self.cfg_ai_model = NoWheelComboBox()
-        self.cfg_ai_model.setEditable(True)
-        self.cfg_ai_model.setToolTip("选择或输入模型名称")
-        ai_l.addWidget(self.cfg_ai_model)
-
-        self.cfg_ai_enabled = QCheckBox("启用AI助手和调研")
-        ai_l.addWidget(self.cfg_ai_enabled)
-
-        ai_l.addWidget(QLabel("API Key:"))
-        self.cfg_ai_key = QLineEdit()
-        self.cfg_ai_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self.cfg_ai_key.setPlaceholderText("sk-...")
-        ai_l.addWidget(self.cfg_ai_key)
-
-        self.cfg_ai_link = QLabel("")
-        self.cfg_ai_link.setOpenExternalLinks(True)
-        self.cfg_ai_link.setStyleSheet(f"color:{C.info}; font-size:10px; background:transparent;")
-        self.cfg_ai_link.setWordWrap(True)
-        ai_l.addWidget(self.cfg_ai_link)
-
-        test_btn = QPushButton("🧪 测试连接")
-        test_btn.setStyleSheet(f"QPushButton {{ background:{C.info}; color:white; font-weight:bold; padding:6px; }}")
-        test_btn.clicked.connect(self._on_test_ai)
-        ai_l.addWidget(test_btn)
-
-        self.cfg_ai_status = QLabel("")
-        self.cfg_ai_status.setStyleSheet("font-size:10px; background:transparent;")
-        self.cfg_ai_status.setWordWrap(True)
-        ai_l.addWidget(self.cfg_ai_status)
-
-        sl.addWidget(ai_g)
-
-        # === 防封设置 ===
-        ab_g = QGroupBox("🛡 防封策略")
-        ab_l = QFormLayout(ab_g)
-        ab_l.setSpacing(4)
-
-        self.cfg_min_delay = NoWheelDoubleSpinBox()
-        self.cfg_min_delay.setRange(1.0, 30.0)
-        self.cfg_min_delay.setSuffix(" 秒")
-        ab_l.addRow("最小间隔:", self.cfg_min_delay)
-
-        self.cfg_max_delay = NoWheelDoubleSpinBox()
-        self.cfg_max_delay.setRange(1.0, 60.0)
-        self.cfg_max_delay.setSuffix(" 秒")
-        ab_l.addRow("最大间隔:", self.cfg_max_delay)
-
-        self.cfg_max_items = NoWheelSpinBox()
-        self.cfg_max_items.setRange(10, 200)
-        self.cfg_max_items.setSuffix(" 条")
-        ab_l.addRow("最大采集:", self.cfg_max_items)
-        sl.addWidget(ab_g)
-
-        # === 采集设置 ===
-        cl_g = QGroupBox("📷 采集")
-        cl_l = QVBoxLayout(cl_g)
-        cl_l.setSpacing(4)
-        self.cfg_download_img = QCheckBox("下载商品图片")
-        cl_l.addWidget(self.cfg_download_img)
-        self.cfg_headless = QCheckBox("后台运行浏览器")
-        self.cfg_headless.setToolTip("浏览器不可见，速度更快但无法手动登录")
-        cl_l.addWidget(self.cfg_headless)
-        sl.addWidget(cl_g)
-
-        # === 界面设置 ===
-        ui_g = QGroupBox("🎨 界面")
-        ui_l = QVBoxLayout(ui_g)
-        ui_l.setSpacing(4)
-        self.cfg_show_welcome = QCheckBox("显示欢迎横幅")
-        self.cfg_show_welcome.setChecked(True)
-        ui_l.addWidget(self.cfg_show_welcome)
-        sl.addWidget(ui_g)
-
-        # === 配置套件 ===
-        suite_g = QGroupBox("📦 配置套件")
-        suite_l = QVBoxLayout(suite_g)
-        suite_l.setSpacing(4)
-
-        self.suite_combo = NoWheelComboBox()
-        self.suite_combo.addItem("自定义配置", None)
-        self.suite_combo.addItem("🛡 安全优先（慢但稳）", "safe")
-        self.suite_combo.addItem("⚡ 平衡模式（推荐）", "balanced")
-        self.suite_combo.addItem("🚀 快速采集", "fast")
-        self.suite_combo.currentIndexChanged.connect(self._on_suite_changed)
-        suite_l.addWidget(self.suite_combo)
-        sl.addWidget(suite_g)
-
-        sl.addStretch()
-
-        # 保存按钮
-        save_btn = QPushButton("💾 保存设置")
-        save_btn.setStyleSheet(f"""
-            QPushButton {{ background:{C.primary}; color:white; font-weight:bold; padding:10px; border:none; font-size:14px; }}
-            QPushButton:hover {{ background:{C.primary_hover}; }}
-        """)
-        save_btn.clicked.connect(self._save_all_settings)
-        sl.addWidget(save_btn)
-
-        scroll.setWidget(sw)
-        layout.addWidget(scroll)
-        body.addWidget(panel)
-
-    def _on_cfg_provider_changed(self, idx):
-        """切换AI提供商时更新模型列表和链接"""
-        key = self.cfg_ai_provider.itemData(idx)
-        if not key: return
-        info = MarketResearcher.API_PROVIDERS.get(key, {})
-
-        # 更新模型列表
-        self.cfg_ai_model.clear()
-        models = {
-            "agnes": ["agnes-2.0-flash"],
-            "deepseek": ["deepseek-chat", "deepseek-reasoner"],
-            "qwen": ["qwen-plus", "qwen-max", "qwen-turbo"],
-            "openai": ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"],
-            "custom": [],
-        }
-        for m in models.get(key, []):
-            self.cfg_ai_model.addItem(m)
-
-        if info.get("get_key_url"):
-            self.cfg_ai_link.setText(f"<a href='{info['get_key_url']}'>🔑 获取Key</a>")
-        else:
-            self.cfg_ai_link.setText("")
-
-    def _on_suite_changed(self, idx):
-        """切换配置套件"""
-        key = self.suite_combo.itemData(idx)
-        if key == "safe":
-            self.cfg_min_delay.setValue(5.0)
-            self.cfg_max_delay.setValue(12.0)
-            self.cfg_max_items.setValue(50)
-        elif key == "balanced":
-            self.cfg_min_delay.setValue(2.0)
-            self.cfg_max_delay.setValue(5.0)
-            self.cfg_max_items.setValue(80)
-        elif key == "fast":
-            self.cfg_min_delay.setValue(1.0)
-            self.cfg_max_delay.setValue(2.0)
-            self.cfg_max_items.setValue(100)
-
-    def _load_settings_to_panel(self):
-        """加载配置到面板"""
-        # AI 配置
-        ai_config = self.researcher.config
-        self.cfg_ai_enabled.setChecked(ai_config.get("enabled", False))
-        self.cfg_ai_key.setText(ai_config.get("api_key", ""))
-        self.cfg_ai_model.setCurrentText(ai_config.get("model", ""))
-
-        prov = ai_config.get("provider", "agnes")
-        for i in range(self.cfg_ai_provider.count()):
-            if self.cfg_ai_provider.itemData(i) == prov:
-                self.cfg_ai_provider.setCurrentIndex(i)
-                break
-
-        # 防封
-        self.cfg_min_delay.setValue(self.cfg["anti_ban"]["min_delay"])
-        self.cfg_max_delay.setValue(self.cfg["anti_ban"]["max_delay"])
-        self.cfg_max_items.setValue(self.cfg["anti_ban"]["max_items_per_session"])
-
-        # 采集
-        self.cfg_download_img.setChecked(self.cfg["collection"]["download_images"])
-        self.cfg_headless.setChecked(self.cfg["xianyu"].get("headless", False))
-
-    def _on_test_ai(self):
-        key = self.cfg_ai_key.text().strip()
-        model = self.cfg_ai_model.currentText().strip()
-        prov = self.cfg_ai_provider.currentData()
-        info = MarketResearcher.API_PROVIDERS.get(prov, {})
-        url = info.get("url", "")
-
-        if not key or not url:
-            self.cfg_ai_status.setText("❌ 请填写 API Key")
-            self.cfg_ai_status.setStyleSheet(f"font-size:10px; color:{C.danger}; background:transparent;")
-            return
-
-        self.cfg_ai_status.setText("⏳ 测试中...")
-        self.cfg_ai_status.setStyleSheet(f"font-size:10px; color:{C.warning}; background:transparent;")
-        QApplication.processEvents()
-
-        try:
-            mr = MarketResearcher({"enabled": True, "provider": prov, "api_key": key, "api_url": url, "model": model})
-            result = mr.research("iPhone")
-            if result.get("ai_powered"):
-                self.cfg_ai_status.setText(f"✅ 连接成功！")
-                self.cfg_ai_status.setStyleSheet(f"font-size:10px; color:{C.success}; background:transparent;")
-            else:
-                self.cfg_ai_status.setText("⚠ 连接成功但降级到本地")
-                self.cfg_ai_status.setStyleSheet(f"font-size:10px; color:{C.warning}; background:transparent;")
-        except Exception as e:
-            self.cfg_ai_status.setText(f"❌ {str(e)[:80]}")
-            self.cfg_ai_status.setStyleSheet(f"font-size:10px; color:{C.danger}; background:transparent;")
-
-    def _save_all_settings(self):
-        """保存所有设置"""
-        self.cfg["anti_ban"]["min_delay"] = self.cfg_min_delay.value()
-        self.cfg["anti_ban"]["max_delay"] = self.cfg_max_delay.value()
-        self.cfg["anti_ban"]["max_items_per_session"] = self.cfg_max_items.value()
-        self.cfg["collection"]["download_images"] = self.cfg_download_img.isChecked()
-        self.cfg["xianyu"]["headless"] = self.cfg_headless.isChecked()
-        save_user_config(self.cfg)
-
-        # AI 配置
-        prov = self.cfg_ai_provider.currentData()
-        info = MarketResearcher.API_PROVIDERS.get(prov, {})
-        ai_config = {
-            "enabled": self.cfg_ai_enabled.isChecked(),
-            "provider": prov,
-            "api_key": self.cfg_ai_key.text().strip(),
-            "api_url": info.get("url", ""),
-            "model": self.cfg_ai_model.currentText().strip(),
-        }
-        mr = MarketResearcher()
-        mr.save_config(ai_config)
-        self.researcher = MarketResearcher(ai_config)
-        self._init_assistant()
-
-        QMessageBox.information(self, "✅ 设置已保存", "所有配置已保存并生效")
-
     # ===== 导航栏 =====
 
     def _navbar(self, parent):
@@ -551,12 +602,12 @@ class MainWindow(QMainWindow):
         bar.setFixedHeight(60)
         bar.setStyleSheet(f"background:{C.navbar_bg}; border-bottom:1px solid {C.border};")
         nl = QHBoxLayout(bar)
-        nl.setContentsMargins(20, 0, 20, 0)
+        nl.setContentsMargins(20, 0, 12, 0)
 
         logo = QLabel("🐟 闲鱼数据调研工具")
         logo.setStyleSheet(f"font-size:18px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
         nl.addWidget(logo)
-        ver = QLabel("v6.0")
+        ver = QLabel("v7.0")
         ver.setStyleSheet(f"font-size:10px; color:{C.primary}; background:{C.primary_bg}; border-radius:4px; padding:2px 8px; margin-left:8px;")
         nl.addWidget(ver)
         nl.addStretch()
@@ -590,7 +641,23 @@ class MainWindow(QMainWindow):
         """)
         self.nav_start_btn.clicked.connect(self._on_start)
         nl.addWidget(self.nav_start_btn)
+
+        # 齿轮设置按钮 - 放在导航栏最右侧
+        gear_btn = QPushButton("⚙️")
+        gear_btn.setFixedSize(38, 38)
+        gear_btn.setToolTip("打开设置面板")
+        gear_btn.setStyleSheet(f"""
+            QPushButton {{ background:transparent; border:1px solid {C.border}; border-radius:19px; font-size:20px; padding:0; }}
+            QPushButton:hover {{ background:{C.primary_bg}; border-color:{C.primary}; }}
+        """)
+        gear_btn.clicked.connect(self._on_open_settings)
+        nl.addWidget(gear_btn)
         parent.addWidget(bar)
+
+    def _on_open_settings(self):
+        """打开设置弹窗"""
+        dlg = SettingsDialog(self, self.researcher, self.cfg)
+        dlg.exec()
 
     # ===== 仪表盘 =====
 
@@ -612,7 +679,7 @@ class MainWindow(QMainWindow):
         """)
         bl = QHBoxLayout(self.welcome_banner)
         bl.setContentsMargins(24, 10, 24, 10)
-        t1 = QLabel("👋 欢迎使用闲鱼数据调研工具 v6.0")
+        t1 = QLabel("👋 欢迎使用闲鱼数据调研工具 v7.0")
         t1.setStyleSheet("color:white; font-size:18px; font-weight:bold; border:none; background:transparent;")
         bl.addWidget(t1)
         bl.addStretch()
@@ -655,6 +722,8 @@ class MainWindow(QMainWindow):
         self.recent_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.recent_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.recent_table.setAlternatingRowColors(True)
+        self.recent_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.recent_table.customContextMenuRequested.connect(self._on_task_table_context_menu)
         lay.addWidget(self.recent_table)
         lay.addStretch()
         scroll.setWidget(w)
@@ -684,6 +753,76 @@ class MainWindow(QMainWindow):
             st = "✅ 完成" if t.get("status") == "finished" else "🔄 进行中"
             self.recent_table.setItem(i, 3, QTableWidgetItem(st))
             self.recent_table.setItem(i, 4, QTableWidgetItem(str(t.get("created_at", "")[:16])))
+
+    # ===== 右键菜单 =====
+
+    def _on_task_table_context_menu(self, pos: QPoint):
+        """最近任务表右键菜单"""
+        row = self.recent_table.rowAt(pos.y())
+        if row < 0: return
+        item = self.recent_table.item(row, 0)
+        if not item: return
+        task_id_text = item.text()
+        try:
+            task_id = int(task_id_text.replace("#", ""))
+        except ValueError:
+            return
+
+        menu = QMenu(self)
+        del_action = menu.addAction("🗑 删除此任务及数据")
+        menu.addSeparator()
+        export_action = menu.addAction("📥 导出此任务Excel")
+        action = menu.exec(self.recent_table.viewport().mapToGlobal(pos))
+
+        if action == del_action:
+            reply = QMessageBox.question(self, "确认删除",
+                f"<h3>⚠ 确认删除</h3><p>将删除任务 #{task_id} 及其所有采集数据。</p><p style='color:{C.danger};'>此操作不可恢复！</p>",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                self.db.delete_task(task_id)
+                self._load_task_history()
+                self._refresh_dashboard()
+                self._refresh_data_view()
+                self._log(f"🗑 已删除任务 #{task_id} 及其数据", "warning")
+        elif action == export_action:
+            self.current_task_id = task_id
+            self._on_export_excel()
+
+    def _on_data_table_context_menu(self, pos: QPoint):
+        """数据预览表右键菜单"""
+        row = self.data_table.rowAt(pos.y())
+        if row < 0: return
+        item = self.data_table.item(row, 0)
+        if not item: return
+
+        # 获取该行的item ID（通过数据库查询）
+        items = self.db.get_items(task_id=self.data_task_combo.currentData(), limit=200)
+        if row >= len(items): return
+        item_data = items[row]
+
+        menu = QMenu(self)
+        del_action = menu.addAction("🗑 删除此条记录")
+        copy_action = menu.addAction("📋 复制标题")
+        open_action = menu.addAction("🔗 打开商品链接")
+        action = menu.exec(self.data_table.viewport().mapToGlobal(pos))
+
+        if action == del_action:
+            reply = QMessageBox.question(self, "确认删除",
+                f"<h3>⚠ 确认删除</h3><p>将删除商品「{item_data.get('title','')[:30]}」？</p>",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                self.db.delete_item(item_data["id"])
+                self._refresh_data_view()
+                self._refresh_dashboard()
+                self._log(f"🗑 已删除记录: {item_data.get('title','')[:30]}", "warning")
+        elif action == copy_action:
+            QApplication.clipboard().setText(item_data.get("title", ""))
+            self.status_bar.showMessage("📋 标题已复制到剪贴板")
+        elif action == open_action:
+            url = item_data.get("item_url", "")
+            if url:
+                import webbrowser
+                webbrowser.open(url)
 
     # ===== 数据预览 =====
 
@@ -716,6 +855,8 @@ class MainWindow(QMainWindow):
         self.data_table.setAlternatingRowColors(True)
         self.data_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.data_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.data_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.data_table.customContextMenuRequested.connect(self._on_data_table_context_menu)
         lay.addWidget(self.data_table)
         return w
 
@@ -802,7 +943,7 @@ class MainWindow(QMainWindow):
             md = self.analyzer.generate_markdown_report(self.data_task_combo.currentData(),
                                                          self.nav_keyword.text().strip() or "全部")
             self.analysis_text.setMarkdown(md)
-            self.tab_widget.setCurrentIndex(3)
+            self.tab_widget.setCurrentIndex(4)
             self._log("✅ 分析报告生成完成", "success")
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             self._last_report_path = os.path.join(self.cfg["paths"]["export_dir"], f"分析报告_{ts}.md")
@@ -861,7 +1002,6 @@ class MainWindow(QMainWindow):
         desc.setStyleSheet(f"font-size:11px; color:{C.text_muted}; background:transparent;")
         ll.addWidget(desc)
 
-        from core.assistant import AIAssistant
         self.scene_list = QListWidget()
         for name, info in AIAssistant.SCENARIOS.items():
             item = QListWidgetItem(f"{info['icon']} {name}")
@@ -886,13 +1026,13 @@ class MainWindow(QMainWindow):
         self.chat_display.setReadOnly(True)
         self.chat_display.setFont(QFont("Microsoft YaHei", 11))
         self.chat_display.setStyleSheet(f"QTextEdit {{ background:{C.card}; color:{C.text}; border:1px solid {C.border}; border-radius:10px; padding:14px; line-height:1.7; }}")
-        self.chat_display.setPlaceholderText("👋 你好！我是闲鱼运营助手。\n\n选择左侧场景模板或直接输入问题开始对话。\n\n我可以帮你：运营策略/文案优化/定价分析/选品建议/客户沟通/数据分析")
+        self.chat_display.setPlaceholderText("👋 你好！我是闲鱼运营助手。\n\n选择左侧场景模板或直接输入问题开始对话。\n\n我可以帮你：运营策略/文案优化/定价分析/选品建议/客户沟通/数据分析\n\n💡 我还能帮你操作软件：\n- 说「采集蓝牙耳机」我会引导你开始采集\n- 说「导出数据」我会帮你导出Excel\n- 说「分析价格」我会生成价格报告")
         rl.addWidget(self.chat_display)
 
         ir = QHBoxLayout()
         ir.setSpacing(8)
         self.chat_input = QLineEdit()
-        self.chat_input.setPlaceholderText("输入问题，如：蓝牙耳机怎么定价？")
+        self.chat_input.setPlaceholderText("输入问题，如：蓝牙耳机怎么定价？或：帮我采集数据")
         self.chat_input.setFixedHeight(40)
         self.chat_input.returnPressed.connect(self._on_send_message)
         ir.addWidget(self.chat_input)
@@ -912,7 +1052,12 @@ class MainWindow(QMainWindow):
         return w
 
     def _init_assistant(self):
-        self.ai_assistant = AIAssistant(config=self.researcher.config, db=self.db)
+        """初始化AI助手并加载记忆"""
+        mem_path = self.cfg.get("ui", {}).get("memory_path",
+                    os.path.join(self.cfg["paths"]["data_dir"], "ai_memory"))
+        self.ai_assistant = AIAssistant(config=self.researcher.config, db=self.db,
+                                         memory_path=mem_path, main_window=self)
+        self.ai_assistant.load_memory()
 
     def _on_scene_selected(self):
         item = self.scene_list.currentItem()
@@ -939,12 +1084,28 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
         self.chat_status.setText("⏳ AI 思考中...")
         kw = self.nav_keyword.text().strip() or ""
+
+        # 先让AI问问题明确需求（如果需要）
+        need_clarify = self.ai_assistant.check_if_need_clarify(msg)
+        if need_clarify:
+            self.chat_display.append(f"🤖 **AI助手：**\n\n{need_clarify}\n")
+            self.chat_status.setText("✅ 就绪（等待你的回复）")
+            self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
+            return
+
         reply = self.ai_assistant.chat(msg, kw)
         self.chat_display.append(f"🤖 **AI助手：**\n\n{reply}\n")
         self.chat_status.setText("✅ 就绪")
         self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
 
     def _on_clear_chat(self):
+        reply = QMessageBox.question(self, "确认清空",
+            "<h3>清空对话</h3><p>是否同时清除AI记忆？</p>",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
+        if reply == QMessageBox.StandardButton.Cancel:
+            return
+        if reply == QMessageBox.StandardButton.Yes:
+            self.ai_assistant.clear_memory()
         self.ai_assistant.clear_history()
         self.chat_display.clear()
 
@@ -1019,7 +1180,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "提示", "请输入搜索关键词")
             return
         mx = self.nav_count.value()
-        di = self.cfg_download_img.isChecked()
+        di = self.cfg["collection"]["download_images"]
 
         if QMessageBox.question(self, "确认开始采集",
             f"<h3>即将开始采集</h3><p><b>关键词：</b>{kw}<br><b>数量：</b>最多 {mx} 条<br>"
@@ -1037,7 +1198,7 @@ class MainWindow(QMainWindow):
         self.log_status_label.setStyleSheet(f"font-size:12px; color:{C.warning}; font-weight:bold; background:transparent;")
         self.log_text.clear()
         self._log(f"🚀 开始采集：{kw}（目标 {mx} 条）", "info")
-        self.tab_widget.setCurrentIndex(4)
+        self.tab_widget.setCurrentIndex(5)
 
         self.worker = CrawlerWorker(kw, mx, di)
         self.worker.log_signal.connect(self._on_log)
@@ -1081,16 +1242,19 @@ class MainWindow(QMainWindow):
 
     def _on_about(self):
         QMessageBox.about(self, "使用说明",
-            """<h2 style='color:#F5A623;'>🐟 闲鱼数据调研工具 v6.0</h2>
+            """<h2 style='color:#F5A623;'>🐟 闲鱼数据调研工具 v7.0</h2>
             <h3>📖 使用步骤</h3><ol>
-            <li>左下角配置AI和防封参数</li><li>输入关键词→开始采集</li>
+            <li>点击导航栏⚙️配置AI和防封参数</li><li>输入关键词→开始采集</li>
             <li>扫码登录闲鱼→等待采集</li><li>导出Excel或生成文案报告</li></ol>
             <h3>🤖 AI功能</h3><ul>
             <li>AI助手：运营策略/文案优化/定价分析</li>
-            <li>AI调研：市场热度/品类分析/采集建议</li></ul>
+            <li>AI调研：市场热度/品类分析/采集建议</li>
+            <li>AI Agent：可自主操作采集/导出/分析</li></ul>
             <h3>⚠ 注意</h3><ul><li>仅供个人学习研究</li><li>勿用于商业用途</li></ul>""")
 
     def closeEvent(self, e):
+        if hasattr(self, 'ai_assistant') and self.ai_assistant:
+            self.ai_assistant.save_memory()
         if self.worker and self.worker.isRunning():
             if QMessageBox.question(self, "确认退出", "采集进行中，确定退出？",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:

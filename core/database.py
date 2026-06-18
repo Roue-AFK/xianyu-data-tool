@@ -197,6 +197,21 @@ class Database:
         """, (task_id,))
         return dict(cursor.fetchone())
 
+    # ========== 删除操作 ==========
+
+    def delete_item(self, item_id):
+        """删除单条商品记录"""
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM items WHERE id=?", (item_id,))
+        self.conn.commit()
+
+    def delete_task(self, task_id):
+        """删除任务及其所有关联数据"""
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM items WHERE task_id=?", (task_id,))
+        cursor.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        self.conn.commit()
+
     # ========== 工具方法 ==========
 
     def close(self):

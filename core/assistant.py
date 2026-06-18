@@ -1,17 +1,19 @@
 """
-闲鱼数据调研工具 - AI对话助手 v1.0
-支持多轮对话、预设场景、MCP工具调用
+闲鱼数据调研工具 - AI对话助手 v2.0
+支持：多轮对话、预设场景、MCP工具调用、AI Agent自主操作、本地记忆
 """
 
 import json
+import os
 import re
+import time
 from datetime import datetime
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
 
 class AIAssistant:
-    """AI 对话助手 - 支持运营咨询、MCP工具调用"""
+    """AI 对话助手 + Agent - 支持运营咨询、MCP工具、自主操作"""
 
     # 预设场景模板
     SCENARIOS = {
@@ -41,16 +43,16 @@ class AIAssistant:
         },
     }
 
-    # MCP 工具定义（基础版）
+    # MCP 工具定义（完整版 - AI Agent可自主调用）
     MCP_TOOLS = [
         {
             "name": "get_collected_data",
-            "description": "获取已采集的商品数据概览，包括数量、平均价格、热门关键词",
+            "description": "获取已采集的商品数据概览，包括总数量、平均价格、热门关键词、任务列表",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
         {
             "name": "get_price_analysis",
-            "description": "获取指定关键词的价格分析，包括价格区间、均价、中位数",
+            "description": "获取指定关键词的价格分析，包括均价、中位数、最高/最低价、价格分布",
             "parameters": {
                 "type": "object",
                 "properties": {"keyword": {"type": "string", "description": "要分析的关键词"}},
@@ -59,7 +61,7 @@ class AIAssistant:
         },
         {
             "name": "get_title_trends",
-            "description": "获取热门标题文案趋势和常用词汇",
+            "description": "获取热门标题文案趋势、高频词统计、标题模式分布",
             "parameters": {
                 "type": "object",
                 "properties": {"keyword": {"type": "string", "description": "要分析的关键词"}},
@@ -68,29 +70,154 @@ class AIAssistant:
         },
         {
             "name": "search_suggestions",
-            "description": "获取建议的搜索关键词组合",
+            "description": "获取建议的搜索关键词组合，用于发现更多商品",
             "parameters": {
                 "type": "object",
                 "properties": {"keyword": {"type": "string", "description": "基础关键词"}},
                 "required": ["keyword"],
             },
         },
+        {
+            "name": "start_collection",
+            "description": "触发采集任务 - 需要用户确认后执行。输入关键词和数量来采集闲鱼商品数据",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string", "description": "采集关键词"},
+                    "max_items": {"type": "integer", "description": "最大采集数量，默认30"},
+                },
+                "required": ["keyword"],
+            },
+        },
+        {
+            "name": "export_data",
+            "description": "导出已采集数据为Excel文件",
+            "parameters": {
+                "type": "object",
+                "properties": {"keyword": {"type": "string", "description": "可选：指定关键词过滤"}},
+                "required": [],
+            },
+        },
+        {
+            "name": "generate_analysis_report",
+            "description": "生成完整的文案分析报告（Markdown格式）",
+            "parameters": {
+                "type": "object",
+                "properties": {"keyword": {"type": "string", "description": "可选：指定关键词"}},
+                "required": [],
+            },
+        },
+        {
+            "name": "get_market_research",
+            "description": "执行AI市场调研，分析市场热度、品类分布、价格区间、采集建议",
+            "parameters": {
+                "type": "object",
+                "properties": {"keyword": {"type": "string", "description": "调研关键词"}},
+                "required": ["keyword"],
+            },
+        },
     ]
 
-    def __init__(self, config=None, db=None):
+    def __init__(self, config=None, db=None, memory_path=None, main_window=None):
         self.config = config or {"enabled": False}
         self.db = db
-        self.history = []  # 对话历史
+        self.history = []  # 对话历史（内存）
+        self.memory_path = memory_path or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "data", "ai_memory"
+        )
+        self.main_window = main_window  # 用于调用GUI功能
+
+    # ========== 记忆管理 ==========
+
+    def set_memory_path(self, path):
+        """修改记忆保存路径"""
+        self.memory_path = path
+        os.makedirs(self.memory_path, exist_ok=True)
+
+    def load_memory(self):
+        """从本地加载记忆"""
+        try:
+            mem_file = os.path.join(self.memory_path, "chat_memory.json")
+            if os.path.exists(mem_file):
+                with open(mem_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.history = data.get("history", [])
+                    return len(self.history)
+        except Exception:
+            self.history = []
+        return 0
+
+    def save_memory(self):
+        """保存记忆到本地"""
+        try:
+            os.makedirs(self.memory_path, exist_ok=True)
+            mem_file = os.path.join(self.memory_path, "chat_memory.json")
+            data = {
+                "updated_at": datetime.now().isoformat(),
+                "history": self.history[-50:],  # 最多保存50轮
+            }
+            with open(mem_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception:
+            return False
+
+    def clear_memory(self):
+        """清空本地记忆文件"""
+        try:
+            mem_file = os.path.join(self.memory_path, "chat_memory.json")
+            if os.path.exists(mem_file):
+                os.remove(mem_file)
+        except Exception:
+            pass
+
+    # ========== 需求澄清 ==========
+
+    def check_if_need_clarify(self, message):
+        """
+        检查用户消息是否需要澄清需求。
+        如果消息太模糊或是操作类请求，AI先问问题明确需求。
+        返回 None 表示不需要澄清，返回字符串则为澄清问题。
+        """
+        msg_lower = message.lower().strip()
+
+        # 模糊的采集/操作请求
+        fuzzy_patterns = [
+            (["采集", "爬", "抓取"], "采集"),
+            (["导出", "下载数据"], "导出"),
+            (["分析", "报告"], "分析"),
+            (["调研", "研究市场"], "调研"),
+        ]
+
+        for keywords, action_type in fuzzy_patterns:
+            if any(kw in msg_lower for kw in keywords):
+                # 检查是否有关键词
+                kw = self._extract_keyword(message)
+                if not kw:
+                    return self._gen_clarify_question(action_type)
+                break
+
+        return None
+
+    def _gen_clarify_question(self, action_type):
+        """生成需求澄清问题"""
+        questions = {
+            "采集": "好的，你想采集数据！在开始之前，我需要确认几个信息：\n\n1. **关键词是什么？** 比如「蓝牙耳机」「iPhone 15」\n2. **采集多少条？** 建议30-50条比较合适\n3. **需要下载图片吗？** 图片会占用存储空间\n\n请告诉我关键词，我来帮你开始采集 😊",
+            "导出": "你想导出数据！请确认：\n\n1. **导出哪个关键词的数据？** 比如「蓝牙耳机」\n2. **格式偏好？** Excel(.xlsx)还是CSV？\n\n或者直接说「导出全部数据」导出所有采集结果。",
+            "分析": "你想分析数据！请问：\n\n1. **分析哪个关键词？** 比如「蓝牙耳机」\n2. **分析什么？** 价格分析、标题趋势、还是完整报告？\n\n或者直接说「分析全部数据」生成完整分析报告。",
+            "调研": "好的，让我来做市场调研！请告诉我：\n\n1. **调研什么品类？** 比如「蓝牙耳机」「二手手机」\n2. **关注什么方面？** 价格/竞争/选品建议？\n\n输入关键词我就开始调研 🔍",
+        }
+        return questions.get(action_type, "请提供更多细节，我好帮你更好地完成任务！")
+
+    # ========== 对话入口 ==========
 
     def chat(self, user_message, keyword=""):
         """
         发送消息并获取AI回复
-
-        Returns:
-            str: AI 回复内容
         """
         if not self.config.get("enabled") or not self.config.get("api_key"):
-            return "⚠ AI助手未配置。请在「设置」→「AI设置」中配置 API Key。\n\n推荐使用免费的 Agnes AI：https://platform.agnes-ai.com"
+            return "⚠ AI助手未配置。请点击导航栏⚙️齿轮按钮 → AI配置中设置 API Key。\n\n推荐使用免费的 Agnes AI：https://platform.agnes-ai.com"
 
         # 检查是否需要调用MCP工具
         tool_result = self._check_tool_call(user_message, keyword)
@@ -102,8 +229,8 @@ class AIAssistant:
         messages = [
             {"role": "system", "content": system_prompt},
         ]
-        # 添加历史（最近10轮）
-        for h in self.history[-10:]:
+        # 添加历史（最近15轮）
+        for h in self.history[-15:]:
             messages.append({"role": h["role"], "content": h["content"]})
         messages.append({"role": "user", "content": user_message})
 
@@ -114,6 +241,9 @@ class AIAssistant:
             # 保存历史
             self.history.append({"role": "user", "content": user_message, "time": datetime.now().strftime("%H:%M")})
             self.history.append({"role": "assistant", "content": reply, "time": datetime.now().strftime("%H:%M")})
+
+            # 自动保存记忆
+            self.save_memory()
 
             return reply
         except Exception as e:
@@ -126,27 +256,31 @@ class AIAssistant:
             return f"未找到场景: {scenario_name}"
 
         if scenario_name == "自由对话":
-            return None  # 返回None表示等待用户输入
+            return None
 
         prompt = scenario["prompt"].format(keyword=keyword) if keyword else scenario["prompt"]
         return self.chat(prompt, keyword)
 
     def clear_history(self):
-        """清空对话历史"""
+        """清空对话历史（内存）"""
         self.history = []
+
+    # ========== 系统提示 ==========
 
     def _build_system_prompt(self, keyword):
         """构建系统提示词"""
         tools_desc = "\n".join([
-            f"- {t['name']}: {t['description']}"
+            f"- **{t['name']}**: {t['description']}"
             for t in self.MCP_TOOLS
         ])
 
-        return f"""你是闲鱼电商运营助手，专门帮助用户在闲鱼平台上更好地运营和销售。
+        return f"""你是闲鱼电商运营助手，也是本软件的AI Agent。你可以帮助用户运营闲鱼店铺，也可以直接操作本软件完成采集、导出、分析等任务。
 
 当前分析关键词：{keyword if keyword else "未指定"}
 
-你可以帮助用户：
+## 你的能力
+
+### 运营咨询
 1. 制定闲鱼运营策略
 2. 优化商品标题和描述文案
 3. 分析定价策略
@@ -154,10 +288,19 @@ class AIAssistant:
 5. 客户沟通话术
 6. 分析已采集的数据
 
-可用工具：
+### 软件操作（通过MCP工具）
 {tools_desc}
 
-请用友好、专业的语气回复，给出具体可操作的建议。回复使用 Markdown 格式。"""
+## 行为准则
+1. **操作前先确认**：当用户请求操作（采集/导出等），如果信息不完整，先问清楚再执行
+2. **提供有价值建议**：基于数据和经验给出具体可操作的建议
+3. **友好专业**：语气友好但专业，回复使用Markdown格式
+4. **安全提醒**：涉及数据删除等操作时提醒用户
+
+## 记忆
+你有对话记忆，会记住之前的对话内容。你可以在回复中引用之前讨论过的内容。"""
+
+    # ========== API 调用 ==========
 
     def _call_api(self, messages):
         """调用大模型API"""
@@ -177,7 +320,6 @@ class AIAssistant:
             "Authorization": f"Bearer {self.config['api_key']}",
         }
 
-        import time
         last_error = None
         for attempt in range(3):
             try:
@@ -199,6 +341,8 @@ class AIAssistant:
 
         raise Exception(f"API请求失败: {last_error}")
 
+    # ========== MCP 工具调用检测 ==========
+
     def _check_tool_call(self, message, keyword):
         """检查用户消息是否需要调用MCP工具"""
         if not self.db:
@@ -207,22 +351,43 @@ class AIAssistant:
         msg_lower = message.lower()
 
         # 数据概览
-        if any(w in msg_lower for w in ["数据概览", "采集了", "有多少数据", "数据统计"]):
+        if any(w in msg_lower for w in ["数据概览", "采集了", "有多少数据", "数据统计", "数据总览"]):
             return self._tool_get_data()
 
         # 价格分析
-        if any(w in msg_lower for w in ["价格分析", "均价", "价格区间"]) and keyword:
+        if any(w in msg_lower for w in ["价格分析", "均价", "价格区间", "价格分布", "价格情况"]) and keyword:
             return self._tool_price_analysis(keyword)
 
         # 标题趋势
-        if any(w in msg_lower for w in ["标题趋势", "文案趋势", "热门词"]) and keyword:
+        if any(w in msg_lower for w in ["标题趋势", "文案趋势", "热门词", "高频词", "标题分析"]) and keyword:
             return self._tool_title_trends(keyword)
 
         # 搜索建议
-        if any(w in msg_lower for w in ["搜索建议", "关键词建议", "怎么搜"]):
+        if any(w in msg_lower for w in ["搜索建议", "关键词建议", "怎么搜", "搜什么"]):
             kw = keyword or self._extract_keyword(message)
             if kw:
                 return self._tool_search_suggestions(kw)
+
+        # 采集请求（Agent操作）
+        if any(w in msg_lower for w in ["开始采集", "采集数据", "帮我采集", "爬一下", "爬取"]) or \
+           (any(w in msg_lower for w in ["采集"]) and keyword):
+            return self._tool_start_collection(message, keyword)
+
+        # 导出请求
+        if any(w in msg_lower for w in ["导出", "导出数据", "导出excel", "导出表格"]):
+            kw = keyword or self._extract_keyword(message)
+            return self._tool_export_data(kw)
+
+        # 生成分析报告
+        if any(w in msg_lower for w in ["生成报告", "分析报告", "文案报告", "完整分析"]):
+            kw = keyword or self._extract_keyword(message)
+            return self._tool_generate_report(kw)
+
+        # 市场调研
+        if any(w in msg_lower for w in ["市场调研", "调研", "市场分析", "研究市场"]):
+            kw = keyword or self._extract_keyword(message)
+            if kw:
+                return self._tool_market_research(kw)
 
         return None
 
@@ -230,12 +395,14 @@ class AIAssistant:
         """从文本中提取关键词"""
         patterns = [
             r'["「「]([^"」」]+)["」」]',
-            r'[关于对针对]\s*[「「]?([^「」」\s,，。]{2,10})[」」]?',
+            r'[关于对针对采集分析调研导出搜索爬]\s*[「「]?([^「」」\s,，。]{2,15})[」」]?',
+            r'(?:关键词|关键字|商品|产品|品类)[是为:：]\s*([^\s,，。]{2,15})',
         ]
         for p in patterns:
             m = re.search(p, text)
             if m:
                 return m.group(1)
+        # 尝试提取引号内容
         return ""
 
     # ========== MCP 工具实现 ==========
@@ -247,7 +414,7 @@ class AIAssistant:
             tasks = self.db.get_tasks(limit=20)
 
             if total == 0:
-                return "📊 **数据概览**\n\n还没有采集任何数据。请先在「数据预览」页进行采集。"
+                return "📊 **数据概览**\n\n还没有采集任何数据。请先在导航栏输入关键词后点击「开始采集」，或对我说「采集蓝牙耳机」我来引导你。\n\n💡 提示：采集前可以先做AI市场调研，了解市场情况再决定采什么。"
 
             keyword_counts = {}
             for t in tasks:
@@ -269,6 +436,7 @@ class AIAssistant:
             for i, (kw, cnt) in enumerate(top_keywords, 1):
                 md += f"{i}. **{kw}** — {cnt}条\n"
 
+            md += f"\n💡 你可以对我说「分析{top_keywords[0][0] if top_keywords else '数据'}的价格」来获取详细分析。"
             return md
         except Exception as e:
             return f"获取数据失败: {e}"
@@ -279,7 +447,6 @@ class AIAssistant:
             from core.analyzer import Analyzer
             analyzer = Analyzer(self.db)
 
-            # 查找匹配的任务
             tasks = self.db.get_tasks(limit=50)
             target_task = None
             for t in tasks:
@@ -288,7 +455,7 @@ class AIAssistant:
                     break
 
             if not target_task:
-                return f"📊 未找到「{keyword}」的采集数据。请先采集该关键词的商品。"
+                return f"📊 未找到「{keyword}」的采集数据。请先采集该关键词的商品（对我说「采集{keyword}」）。"
 
             price = analyzer.analyze_price(target_task["id"])
             if "error" in price:
@@ -310,6 +477,7 @@ class AIAssistant:
                 bar = "█" * (int(d["rate"].replace("%", "")) // 5)
                 md += f"- {d['range']}元: {d['count']}个 ({d['rate']}) {bar}\n"
 
+            md += f"\n💡 建议定价在 **¥{price['avg']}** 附近，略低于均价更容易成交。"
             return md
         except Exception as e:
             return f"价格分析失败: {e}"
@@ -350,6 +518,7 @@ class AIAssistant:
                 for p in patterns.get("patterns", []):
                     md += f"- {p['name']}: {p['count']}条 ({p['rate']})\n"
 
+            md += "\n💡 参考高频词优化标题可以提高搜索曝光率。"
             return md
         except Exception as e:
             return f"标题分析失败: {e}"
@@ -368,7 +537,81 @@ class AIAssistant:
             for i, s in enumerate(suggestions, 1):
                 md += f"{i}. `{s}`\n"
 
-            md += f"\n💡 提示：尝试不同的关键词组合可以发现更多商品。"
+            md += f"\n💡 提示：尝试不同的关键词组合可以发现更多商品。要开始采集吗？"
             return md
         except Exception as e:
             return f"获取建议失败: {e}"
+
+    def _tool_start_collection(self, message, keyword):
+        """Agent触发采集"""
+        if not keyword:
+            return "请告诉我你想采集什么关键词？比如「采集蓝牙耳机」"
+
+        # 提取数量
+        count_match = re.search(r'(\d+)\s*[条个]', message)
+        count = int(count_match.group(1)) if count_match else 30
+        count = min(count, 100)
+
+        # 如果有主窗口引用，直接设置并触发
+        if self.main_window:
+            self.main_window.nav_keyword.setText(keyword)
+            self.main_window.nav_count.setValue(count)
+            return f"""🚀 **准备采集「{keyword}」**
+
+| 参数 | 值 |
+|------|------|
+| 关键词 | **{keyword}** |
+| 采集数量 | **{count}** 条 |
+
+⚠ 我已经帮你填好参数，请点击导航栏的「**开始采集**」按钮或按回车键确认。
+
+采集过程中会自动打开浏览器，请扫码登录闲鱼。"""
+        else:
+            return f"🚀 请在导航栏输入关键词「{keyword}」并设置数量为{count}条，然后点击「开始采集」。"
+
+    def _tool_export_data(self, keyword):
+        """Agent触发导出"""
+        if self.main_window:
+            try:
+                from core.exporter import Exporter
+                exporter = Exporter(self.db)
+                path = exporter.export_to_excel(keyword=keyword if keyword else None)
+                self.main_window._log(f"✅ AI Agent 导出成功: {path}", "success")
+                self.main_window._refresh_data_view()
+                return f"✅ **导出成功！**\n\n文件路径：`{path}`\n\n💡 你可以在导出目录找到这个文件。"
+            except Exception as e:
+                return f"❌ 导出失败: {e}"
+        else:
+            return "📥 请在「数据预览」标签页选择任务后点击「导出Excel」。"
+
+    def _tool_generate_report(self, keyword):
+        """Agent生成分析报告"""
+        if self.main_window:
+            try:
+                from core.analyzer import Analyzer
+                analyzer = Analyzer(self.db)
+                md = analyzer.generate_markdown_report(None, keyword or "全部")
+                self.main_window.analysis_text.setMarkdown(md)
+                self.main_window.tab_widget.setCurrentIndex(4)
+                self.main_window._log(f"✅ AI Agent 生成分析报告", "success")
+                return f"✅ **分析报告已生成！**\n\n已切换到「文案分析」标签页查看。\n\n报告包含：高频词分析、标题模式、价格分布、卖家分布等。"
+            except Exception as e:
+                return f"❌ 生成报告失败: {e}"
+        else:
+            return "📊 请在「文案分析」标签页点击「生成分析报告」。"
+
+    def _tool_market_research(self, keyword):
+        """Agent执行市场调研"""
+        try:
+            from core.researcher import MarketResearcher
+            mr = MarketResearcher()
+            md = mr.generate_markdown_report(keyword)
+
+            if self.main_window:
+                self.main_window.research_keyword.setText(keyword)
+                self.main_window.research_text.setMarkdown(md)
+                self.main_window.tab_widget.setCurrentIndex(2)
+
+            return f"✅ **市场调研完成！**\n\n已对「{keyword}」进行市场调研分析，切换到「AI调研」标签页查看完整报告。\n\n💡 确认调研结果后，可以对我说「采集{keyword}」开始采集数据。"
+        except Exception as e:
+            return f"❌ 调研失败: {e}"
