@@ -18,8 +18,8 @@ from PyQt6.QtWidgets import (
     QSplitter, QApplication, QSlider, QStackedWidget, QSizePolicy,
     QDialog, QDialogButtonBox, QMenu, QFileDialog,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint
-from PyQt6.QtGui import QFont, QColor, QTextCursor, QAction, QWheelEvent, QIcon
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, QPauseAnimation
+from PyQt6.QtGui import QFont, QColor, QTextCursor, QAction, QWheelEvent, QIcon, QPainter, QBrush, QPen, QLinearGradient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -140,6 +140,77 @@ class QuickCard(QFrame):
     def enterEvent(self, e): self._upd(True)
     def leaveEvent(self, e): self._upd(False)
     def mousePressEvent(self, e): self.clicked.emit()
+
+
+# ========== AI状态指示器 / 加载动画 ==========
+
+class TypingIndicator(QWidget):
+    """Codex风格跳动点动画 — 3个渐显渐隐的圆点"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(48, 14)
+        self._opacity = [0.3, 0.3, 0.3]
+        self._target = [0.3, 0.3, 0.3]
+        self._phase = 0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+
+    def start(self):
+        self._phase = 0
+        self._timer.start(80)
+        self.show()
+
+    def stop(self):
+        self._timer.stop()
+        self.hide()
+
+    def _tick(self):
+        import math
+        t = self._phase * 0.15
+        for i in range(3):
+            offset = i * 2.1
+            v = (math.sin(t + offset) + 1) / 2
+            self._opacity[i] = 0.2 + v * 0.8
+        self._phase += 1
+        self.update()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        cx = self.width() // 2
+        cy = self.height() // 2
+        for i in range(3):
+            alpha = int(self._opacity[i] * 255)
+            p.setBrush(QBrush(QColor(C.primary).darker(120 - i * 30)))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setOpacity(self._opacity[i])
+            p.drawEllipse(cx - 18 + i * 14, cy - 4, 8, 8)
+        p.end()
+
+
+class StatusBadge(QFrame):
+    """AI状态徽章 — 带颜色指示点 + 文字"""
+    def __init__(self, text="就绪", color=C.success):
+        super().__init__()
+        self.setFixedHeight(26)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 2, 12, 2)
+        layout.setSpacing(6)
+        self._dot = QLabel("●")
+        self._dot.setStyleSheet(f"color:{color}; font-size:10px; border:none; background:transparent;")
+        layout.addWidget(self._dot)
+        self._label = QLabel(text)
+        self._label.setStyleSheet(f"font-size:11px; color:{C.text_dim}; border:none; background:transparent;")
+        layout.addWidget(self._label)
+        self.setStyleSheet(f"""
+            StatusBadge {{ background:{C.card}; border:1px solid {C.border}; border-radius:13px; }}
+            StatusBadge:hover {{ border-color:{C.primary}60; }}
+        """)
+
+    def set_state(self, text, color):
+        self._label.setText(text)
+        self._dot.setStyleSheet(f"color:{color}; font-size:10px; border:none; background:transparent;")
 
 
 # ========== 爬虫线程 ==========
@@ -1010,7 +1081,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.log_text)
         return w
 
-    # ===== AI 对话（v9.0 重构：精美聊天UI）=====
+    # ===== AI 对话（v10.0：状态指示器 + 加载动画 + 消息气泡）=====
 
     def _chat_tab(self):
         w = QWidget()
@@ -1019,53 +1090,64 @@ class MainWindow(QMainWindow):
         vl.setSpacing(0)
         vl.setContentsMargins(16, 10, 16, 10)
 
-        # ═══════ 顶部欢迎横幅 ═══════
-        self.chat_banner = QFrame()
-        self.chat_banner.setFixedHeight(68)
-        self.chat_banner.setStyleSheet(f"""
-            QFrame {{
-                background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 {C.primary}18,stop:1 {C.purple}18);
-                border: 1px solid {C.border};
-                border-radius: 12px;
-            }}
-        """)
-        bl = QHBoxLayout(self.chat_banner)
-        bl.setContentsMargins(18, 8, 18, 8)
-        avatar = QLabel("🤖")
-        avatar.setStyleSheet("font-size:28px; border:none; background:transparent;")
-        bl.addWidget(avatar)
-        btxt = QLabel("闲鱼运营AI助手")
-        btxt.setStyleSheet(f"font-size:15px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
-        bl.addWidget(btxt)
-        bsub = QLabel("随时为你提供运营策略、文案优化、定价分析")
-        bsub.setStyleSheet(f"font-size:11px; color:{C.text_dim}; border:none; background:transparent;")
-        bl.addWidget(bsub)
-        bl.addStretch()
+        # ═══════ 顶部状态栏 ═══════
+        top_bar = QHBoxLayout()
+        top_bar.setSpacing(8)
 
-        # 模板快捷标签（可点击）
-        self.quick_tags_layout = QHBoxLayout()
-        self.quick_tags_layout.setSpacing(6)
+        # AI 头像 + 名称
+        avatar_frame = QFrame()
+        avatar_frame.setFixedSize(40, 40)
+        avatar_frame.setStyleSheet(f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {C.primary},stop:1 {C.purple}); border-radius:20px;")
+        avl = QVBoxLayout(avatar_frame)
+        avl.setContentsMargins(0,0,0,0)
+        al = QLabel("🤖")
+        al.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        al.setStyleSheet("font-size:18px; border:none; background:transparent;")
+        avl.addWidget(al)
+        top_bar.addWidget(avatar_frame)
+
+        ai_info = QVBoxLayout()
+        ai_info.setSpacing(0)
+        ai_name = QLabel("闲鱼运营AI助手")
+        ai_name.setStyleSheet(f"font-size:14px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
+        ai_info.addWidget(ai_name)
+
+        # 状态徽章行
+        status_row = QHBoxLayout()
+        status_row.setSpacing(6)
+        self.chat_status_badge = StatusBadge("就绪", C.success)
+        status_row.addWidget(self.chat_status_badge)
+
+        self.chat_provider_label = QLabel("")
+        self.chat_provider_label.setStyleSheet(f"font-size:10px; color:{C.text_muted}; border:none; background:transparent;")
+        status_row.addWidget(self.chat_provider_label)
+        status_row.addStretch()
+        ai_info.addLayout(status_row)
+        top_bar.addLayout(ai_info)
+
+        top_bar.addStretch()
+
+        # 快捷标签
         for tag_name in ["运营策略", "文案优化", "定价分析", "选品建议", "客户沟通"]:
             tag = QPushButton(tag_name)
-            tag.setFixedHeight(24)
+            tag.setFixedHeight(26)
             tag.setCursor(Qt.CursorShape.PointingHandCursor)
             tag.setStyleSheet(f"""
                 QPushButton {{
-                    background: {C.card}; border: 1px solid {C.border}; border-radius: 12px;
-                    padding: 2px 12px; font-size: 11px; color: {C.text_dim};
+                    background: {C.card}; border: 1px solid {C.border}; border-radius: 13px;
+                    padding: 3px 14px; font-size: 11px; color: {C.text_dim};
                 }}
                 QPushButton:hover {{
                     background: {C.primary_bg}; border-color: {C.primary}; color: {C.primary};
                 }}
             """)
             tag.clicked.connect(lambda checked, t=tag_name: self._on_quick_tag(t))
-            self.quick_tags_layout.addWidget(tag)
-        bl.addLayout(self.quick_tags_layout)
-        vl.addWidget(self.chat_banner)
+            top_bar.addWidget(tag)
 
+        vl.addLayout(top_bar)
         vl.addSpacing(10)
 
-        # ═══════ 主对话区 ═══════
+        # ═══════ 对话区（消息气泡用HTML渲染） ═══════
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
         self.chat_display.setFont(QFont("Microsoft YaHei", 11))
@@ -1099,9 +1181,9 @@ class MainWindow(QMainWindow):
         icl.setSpacing(6)
         icl.setContentsMargins(14, 10, 14, 12)
 
-        # 输入框行
-        ir = QHBoxLayout()
-        ir.setSpacing(10)
+        # 输入框 + 加载动画行
+        input_row = QHBoxLayout()
+        input_row.setSpacing(8)
         self.chat_input = QLineEdit()
         self.chat_input.setPlaceholderText("输入你的问题... 如：蓝牙耳机怎么定价？")
         self.chat_input.setFixedHeight(44)
@@ -1120,7 +1202,12 @@ class MainWindow(QMainWindow):
             }}
         """)
         self.chat_input.returnPressed.connect(self._on_send_message)
-        ir.addWidget(self.chat_input)
+        input_row.addWidget(self.chat_input)
+
+        # 跳动点动画（Codex风格）
+        self.typing_indicator = TypingIndicator()
+        self.typing_indicator.hide()
+        input_row.addWidget(self.typing_indicator)
 
         send_btn = QPushButton("发送")
         send_btn.setFixedSize(72, 44)
@@ -1135,57 +1222,53 @@ class MainWindow(QMainWindow):
             }}
             QPushButton:hover {{ background: {C.primary_hover}; }}
             QPushButton:pressed {{ background: #E8951E; }}
+            QPushButton:disabled {{ background: {C.border}; color: {C.text_muted}; }}
         """)
         send_btn.clicked.connect(self._on_send_message)
-        ir.addWidget(send_btn)
-        icl.addLayout(ir)
+        input_row.addWidget(send_btn)
+        icl.addLayout(input_row)
 
-        # 底部状态+操作行
+        # 底部操作行
         bsl = QHBoxLayout()
-        bsl.setSpacing(10)
-        self.chat_status = QLabel("🟢 就绪")
-        self.chat_status.setStyleSheet(f"font-size:11px; color:{C.text_dim}; background:transparent; border:none;")
-        bsl.addWidget(self.chat_status)
-        bsl.addStretch()
-
-        # 场景+类型选择器（精致版）
+        bsl.setSpacing(8)
         scene_label = QLabel("场景")
         scene_label.setStyleSheet(f"font-size:10px; color:{C.text_muted}; background:transparent; border:none;")
         bsl.addWidget(scene_label)
         self.chat_scene_combo = NoWheelComboBox()
-        self.chat_scene_combo.setFixedWidth(130)
-        self.chat_scene_combo.setFixedHeight(28)
+        self.chat_scene_combo.setFixedWidth(120)
+        self.chat_scene_combo.setFixedHeight(26)
         self.chat_scene_combo.addItem("💡 自由对话", "自由对话")
         self.chat_scene_combo.currentIndexChanged.connect(self._on_chat_scene_changed)
         bsl.addWidget(self.chat_scene_combo)
 
         self.chat_type_combo = NoWheelComboBox()
-        self.chat_type_combo.setFixedWidth(130)
-        self.chat_type_combo.setFixedHeight(28)
+        self.chat_type_combo.setFixedWidth(120)
+        self.chat_type_combo.setFixedHeight(26)
         self.chat_type_combo.setVisible(False)
         bsl.addWidget(self.chat_type_combo)
 
         self.chat_template_btn = QPushButton("使用模板")
-        self.chat_template_btn.setFixedHeight(28)
+        self.chat_template_btn.setFixedHeight(26)
         self.chat_template_btn.setVisible(False)
         self.chat_template_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.chat_template_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {C.purple}; color: white; font-weight: bold;
-                border: none; border-radius: 14px; padding: 3px 14px; font-size: 11px;
+                border: none; border-radius: 13px; padding: 3px 14px; font-size: 11px;
             }}
             QPushButton:hover {{ background: #5B21B6; }}
         """)
         self.chat_template_btn.clicked.connect(self._on_use_template)
         bsl.addWidget(self.chat_template_btn)
 
+        bsl.addStretch()
         clear_btn = QPushButton("清空对话")
-        clear_btn.setFixedHeight(28)
+        clear_btn.setFixedHeight(26)
         clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         clear_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; color: {C.text_muted}; font-weight: normal;
-                border: 1px solid {C.border}; border-radius: 14px; padding: 3px 14px; font-size: 11px;
+                border: 1px solid {C.border}; border-radius: 13px; padding: 3px 14px; font-size: 11px;
             }}
             QPushButton:hover {{ background: {C.danger}18; color: {C.danger}; border-color: {C.danger}; }}
         """)
@@ -1199,22 +1282,58 @@ class MainWindow(QMainWindow):
         self._populate_chat_scenes()
         return w
 
+    def _show_typing(self):
+        """显示AI思考中的动画"""
+        self.chat_status_badge.set_state("思考中...", C.warning)
+        self.chat_provider_label.setText(f"({self.researcher.config.get('provider','').upper()})")
+        self.typing_indicator.start()
+
+    def _hide_typing(self):
+        """隐藏动画，恢复就绪"""
+        self.typing_indicator.stop()
+        self.chat_status_badge.set_state("就绪", C.success)
+        self.chat_provider_label.setText("")
+
+    def _append_user_bubble(self, text):
+        """用户消息气泡"""
+        self.chat_display.append(
+            f"<div style='text-align:right; margin:8px 0;'>"
+            f"<span style='display:inline-block; background:{C.primary}; color:white; "
+            f"padding:10px 16px; border-radius:18px 4px 18px 18px; max-width:75%; "
+            f"text-align:left; font-size:12px; line-height:1.5;'>{text}</span>"
+            f"</div>"
+        )
+
+    def _append_ai_bubble(self, text):
+        """AI消息气泡 — Markdown渲染"""
+        # 移除HTML标签转义（让Markdown正确渲染）
+        import html
+        safe = html.escape(text)
+        self.chat_display.append(
+            f"<div style='text-align:left; margin:8px 0;'>"
+            f"<span style='display:inline-block; background:{C.primary_bg}; color:{C.text}; "
+            f"padding:12px 18px; border-radius:4px 18px 18px 18px; max-width:85%; "
+            f"text-align:left; font-size:12px; line-height:1.6; "
+            f"border:1px solid {C.primary}20;'>"
+            f"{text}"
+            f"</span>"
+            f"</div>"
+        )
+
     def _on_quick_tag(self, tag_name):
         """点击顶部快捷标签直接发起对话"""
         kw = self.nav_keyword.text().strip() or ""
         if not kw:
-            self.chat_display.append(f"\n📌 **{tag_name}** — 请先在导航栏输入关键词\n")
-            self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
+            self._append_ai_bubble(f"📌 **{tag_name}** — 请先在导航栏输入关键词，我再帮你分析。")
             return
-        self.chat_display.append(f"\n📌 **{tag_name}**\n")
+        self._append_user_bubble(f"帮我做{tag_name}")
         QApplication.processEvents()
-        self.chat_status.setText("⏳ AI 思考中...")
-        self.ai_assistant.chat_with_scenario(tag_name, kw)
+        self._show_typing()
+        QApplication.processEvents()
         reply = self.ai_assistant.chat_with_scenario(tag_name, kw)
         if reply:
-            self.chat_display.append(f"🤖 **AI助手：**\n\n{reply}\n")
-        self.chat_status.setText("🟢 就绪")
-        self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
+            self._append_ai_bubble(reply)
+        self._hide_typing()
 
     def _populate_chat_scenes(self):
         """填充场景和类型下拉框"""
@@ -1258,15 +1377,15 @@ class MainWindow(QMainWindow):
         if scene_name == "自由对话":
             return
 
-        self.chat_display.append(f"\n📌 **{scene_name}** → {type_name}\n")
+        self._append_user_bubble(f"📌 {scene_name} → {type_name}")
         QApplication.processEvents()
-        self.chat_status.setText("⏳ 生成中...")
+        self._show_typing()
+        QApplication.processEvents()
         prompt = self._build_template_prompt(scene_name, type_name, kw)
         reply = self.ai_assistant.chat(prompt, kw)
         if reply:
-            self.chat_display.append(f"🤖 **AI助手：**\n\n{reply}\n")
-        self.chat_status.setText("🟢 就绪")
-        self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
+            self._append_ai_bubble(reply)
+        self._hide_typing()
 
     def _build_template_prompt(self, scene_name, type_name, keyword):
         """根据场景+类型构建精准prompt"""
@@ -1314,22 +1433,23 @@ class MainWindow(QMainWindow):
         msg = self.chat_input.text().strip()
         if not msg: return
         self.chat_input.clear()
-        self.chat_display.append(f"\n🧑 **你：** {msg}\n")
+        self._append_user_bubble(msg)
         QApplication.processEvents()
-        self.chat_status.setText("⏳ 思考中...")
+        self._show_typing()
         kw = self.nav_keyword.text().strip() or ""
 
         # 先让AI问问题明确需求（如果需要）
         need_clarify = self.ai_assistant.check_if_need_clarify(msg)
         if need_clarify:
-            self.chat_display.append(f"🤖 **AI助手：**\n\n{need_clarify}\n")
-            self.chat_status.setText("🟢 等待回复")
-            self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
+            QApplication.processEvents()
+            self._append_ai_bubble(need_clarify)
+            self._hide_typing()
+            self.chat_status_badge.set_state("等待回复", C.info)
             return
 
         reply = self.ai_assistant.chat(msg, kw)
-        self.chat_display.append(f"🤖 **AI助手：**\n\n{reply}\n")
-        self.chat_status.setText("🟢 就绪")
+        self._append_ai_bubble(reply)
+        self._hide_typing()
         self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
 
     def _on_clear_chat(self):
