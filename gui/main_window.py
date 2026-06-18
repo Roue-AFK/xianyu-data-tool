@@ -1122,6 +1122,24 @@ class MainWindow(QMainWindow):
         self.chat_provider_label.setStyleSheet(f"font-size:10px; color:{C.text_muted}; border:none; background:transparent;")
         status_row.addWidget(self.chat_provider_label)
         status_row.addStretch()
+
+        # ═══ 自动执行模式开关 ═══
+        auto_frame = QFrame()
+        auto_frame.setFixedHeight(26)
+        auto_frame.setStyleSheet(f"""
+            QFrame {{ background:{C.card}; border:1px solid {C.border}; border-radius:13px; padding:0 6px; }}
+        """)
+        auto_hl = QHBoxLayout(auto_frame)
+        auto_hl.setContentsMargins(6, 0, 4, 0)
+        auto_hl.setSpacing(4)
+        self.agent_toggle = QCheckBox("自动执行")
+        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:11px; color:{C.text_dim}; spacing:4px; border:none; background:transparent; }}")
+        self.agent_toggle.setToolTip("开启后AI将作为操作Agent，与你讨论具体操作步骤并自动执行")
+        self.agent_toggle.toggled.connect(self._on_agent_mode_toggled)
+        auto_hl.addWidget(self.agent_toggle)
+        status_row.addWidget(auto_frame)
+        # ═══════════════════════
+
         ai_info.addLayout(status_row)
         top_bar.addLayout(ai_info)
 
@@ -1164,11 +1182,13 @@ class MainWindow(QMainWindow):
         """)
         self.chat_display.setPlaceholderText(
             "👋 你好！我是闲鱼运营AI助手\n\n"
-            "💬 直接输入问题开始对话，我会帮你：\n"
-            "  • 制定运营策略、优化文案标题\n"
-            "  • 分析价格趋势、提供选品建议\n"
-            "  • 客户沟通话术、数据分析报告\n\n"
-            "📋 点击上方标签或输入「采集蓝牙耳机」我能帮你操作软件"
+            "💬 自由对话：直接输入问题，我会帮你解答\n"
+            "⚡ 自动执行：勾选上方「自动执行」后，告诉我你要做什么，我会帮你操作软件\n"
+            "  • 「采集蓝牙耳机30条」→ 自动开始采集\n"
+            "  • 「导出所有数据」→ 自动导出Excel\n"
+            "  • 「分析蓝牙耳机价格」→ 生成价格报告\n"
+            "  • 「调研iPhone市场」→ 市场调研报告\n\n"
+            "📋 快捷标签：运营策略/文案优化/定价分析/选品建议/客户沟通"
         )
         vl.addWidget(self.chat_display)
 
@@ -1428,6 +1448,36 @@ class MainWindow(QMainWindow):
         self.ai_assistant = AIAssistant(config=self.researcher.config, db=self.db,
                                          memory_path=mem_path, main_window=self)
         self.ai_assistant.load_memory()
+        self.agent_mode = False
+
+    def _on_agent_mode_toggled(self, checked):
+        """自动执行模式切换"""
+        self.agent_mode = checked
+        if checked:
+            self.chat_status_badge.set_state("自动执行", C.info)
+            self._append_ai_bubble(
+                "⚡ **自动执行模式已开启**\n\n"
+                "我现在是你的操作Agent。请告诉我你要做什么，我会：\n"
+                "1. 先确认你的具体需求\n"
+                "2. 确认后自动执行操作\n"
+                "3. 完成后告诉你结果\n\n"
+                "**我可以执行的操作：**\n"
+                "• 📥 采集数据 — 说「采集蓝牙耳机30条」\n"
+                "• 📊 导出Excel — 说「导出所有数据」\n"
+                "• 📈 价格分析 — 说「分析蓝牙耳机价格」\n"
+                "• 📝 文案分析 — 说「分析蓝牙耳机文案」\n"
+                "• 🔍 市场调研 — 说「调研iPhone市场」\n"
+                "• 🗑 删除数据 — 说「删除蓝牙耳机的数据」\n\n"
+                "请告诉我你要做什么？"
+            )
+            self.chat_input.setPlaceholderText("告诉我你要执行什么操作... 如：采集蓝牙耳机30条")
+            # 更新assistant为Agent模式
+            self.ai_assistant.set_agent_mode(True)
+        else:
+            self.chat_status_badge.set_state("就绪", C.success)
+            self._append_ai_bubble("💬 **已切换回自由对话模式**，你可以问我任何问题。")
+            self.chat_input.setPlaceholderText("输入你的问题... 如：蓝牙耳机怎么定价？")
+            self.ai_assistant.set_agent_mode(False)
 
     def _on_send_message(self):
         msg = self.chat_input.text().strip()
@@ -1435,10 +1485,56 @@ class MainWindow(QMainWindow):
         self.chat_input.clear()
         self._append_user_bubble(msg)
         QApplication.processEvents()
+        kw = self.nav_keyword.text().strip() or ""
+
+        # ═══ 自动执行模式 ═══
+        if self.agent_mode:
+            self._show_typing()
+            self.chat_status_badge.set_state("分析中...", C.warning)
+            QApplication.processEvents()
+
+            # Agent: 先解析用户意图，决定是否直接执行还是需要澄清
+            action = self.ai_assistant.parse_agent_action(msg, kw)
+            if action.get("need_clarify"):
+                # 需要澄清
+                self._hide_typing()
+                self.chat_status_badge.set_state("等待确认", C.info)
+                self._append_ai_bubble(action["clarify_msg"])
+                return
+
+            if action.get("action") == "exec":
+                # 直接执行
+                self.chat_status_badge.set_state("执行中...", C.warning)
+                QApplication.processEvents()
+                result = self._execute_agent_action(action, msg)
+                self._hide_typing()
+                self.chat_status_badge.set_state("自动执行", C.info)
+                self._append_ai_bubble(result)
+                return
+
+            if action.get("action") == "confirm":
+                # 需要确认后执行
+                self._hide_typing()
+                self.chat_status_badge.set_state("等待确认", C.info)
+                self._pending_action = action
+                self._append_ai_bubble(
+                    f"{action['confirm_msg']}\n\n"
+                    f"回复「确认」或「是」来执行，回复其他内容取消。"
+                )
+                return
+
+            # 普通对话（Agent模式下的非操作对话）
+            reply = self.ai_assistant.chat(msg, kw)
+            self._append_ai_bubble(reply)
+            self._hide_typing()
+            self.chat_status_badge.set_state("自动执行", C.info)
+            return
+
+        # ═══ 普通模式 ═══
         self._show_typing()
         kw = self.nav_keyword.text().strip() or ""
 
-        # 先让AI问问题明确需求（如果需要）
+        # 先让AI问问题明确需求
         need_clarify = self.ai_assistant.check_if_need_clarify(msg)
         if need_clarify:
             QApplication.processEvents()
@@ -1462,6 +1558,78 @@ class MainWindow(QMainWindow):
             self.ai_assistant.clear_memory()
         self.ai_assistant.clear_history()
         self.chat_display.clear()
+
+    def _execute_agent_action(self, action, original_msg):
+        """Agent自动执行操作"""
+        act_type = action.get("type", "")
+        kw = action.get("keyword", "")
+        count = action.get("count", 30)
+
+        try:
+            if act_type == "collect":
+                self.nav_keyword.setText(kw)
+                self.nav_count.setText(str(count))
+                QApplication.processEvents()
+                self._on_start()
+                return f"✅ **已开始采集「{kw}」**\n\n采集数量: {count} 条\n浏览器将自动打开，请扫码登录闲鱼。\n\n采集完成后会自动保存数据。"
+
+            elif act_type == "export":
+                from core.exporter import Exporter
+                exporter = Exporter(self.db)
+                path = exporter.export_to_excel(keyword=kw if kw else None)
+                self._log(f"✅ AI Agent 导出: {path}", "success")
+                self._refresh_data_view()
+                return f"✅ **导出成功！**\n\n文件: `{path}`\n\n数据已导出为 Excel 格式。"
+
+            elif act_type == "price_analysis":
+                return self.ai_assistant._tool_price_analysis(kw)
+
+            elif act_type == "title_analysis":
+                return self.ai_assistant._tool_title_trends(kw)
+
+            elif act_type == "data_overview":
+                return self.ai_assistant._tool_get_data()
+
+            elif act_type == "research":
+                from core.researcher import MarketResearcher
+                mr = MarketResearcher()
+                md = mr.generate_markdown_report(kw)
+                self.research_keyword.setText(kw)
+                self.research_text.setMarkdown(md)
+                self.tab_widget.setCurrentIndex(2)
+                return f"✅ **市场调研「{kw}」已完成！**\n\n已切换到「AI调研」标签页查看完整报告。"
+
+            elif act_type == "analyze_report":
+                from core.analyzer import Analyzer
+                analyzer = Analyzer(self.db)
+                md = analyzer.generate_markdown_report(None, kw or "全部")
+                self.analysis_text.setMarkdown(md)
+                self.tab_widget.setCurrentIndex(4)
+                return f"✅ **文案分析报告已生成！**\n\n已切换到「文案分析」标签页查看。"
+
+            elif act_type == "delete_confirm":
+                tasks = self.db.get_tasks(limit=100)
+                deleted = 0
+                for t in tasks:
+                    if kw in t.get("keyword", ""):
+                        self.db.delete_task(t["id"])
+                        deleted += 1
+                self._load_task_history()
+                self._refresh_dashboard()
+                self._refresh_data_view()
+                return f"✅ **已删除 {deleted} 个任务**（关键词「{kw}」）及其所有数据。"
+
+            elif act_type == "chat":
+                reply = self.ai_assistant.chat(original_msg, kw)
+                return reply
+
+            else:
+                return f"❓ 无法识别操作「{act_type}」。可执行: 采集/导出/分析价格/分析文案/调研/数据概览/删除"
+
+        except Exception as e:
+            import traceback
+            self._log(f"Agent执行失败: {traceback.format_exc()}", "error")
+            return f"❌ **执行失败**: {str(e)}"
 
     # ===== AI 调研 =====
 

@@ -210,6 +210,99 @@ class AIAssistant:
         }
         return questions.get(action_type, "请提供更多细节，我好帮你更好地完成任务！")
 
+    # ========== Agent 自动执行模式 ==========
+
+    def set_agent_mode(self, enabled):
+        """切换Agent模式"""
+        self._agent_mode = enabled
+
+    def parse_agent_action(self, message, keyword=""):
+        """
+        Agent模式：解析用户消息，返回操作指令。
+        返回格式: {
+            "action": "exec"|"confirm"|"chat",
+            "type": "collect"|"export"|"price_analysis"|"title_analysis"|"research"|"analyze_report"|"data_overview"|"delete",
+            "keyword": "...",
+            "count": 30,
+            "need_clarify": True/False,
+            "clarify_msg": "...",
+            "confirm_msg": "..."
+        }
+        """
+        msg = message.strip()
+        kw = keyword or self._extract_keyword(msg)
+
+        # 提取数量
+        count_match = re.search(r'(\d+)\s*[条个]', msg)
+        count = int(count_match.group(1)) if count_match else 30
+
+        # ═══ 采集 ═══
+        if any(w in msg for w in ["采集", "爬取", "爬", "抓取"]):
+            if not kw:
+                return {"action": "exec", "need_clarify": True,
+                        "clarify_msg": "好的，你想采集数据！请告诉我：\n\n1. **采集什么关键词？** 比如「蓝牙耳机」「iPhone 15」\n2. **采集多少条？** 默认30条\n\n直接说「采集蓝牙耳机30条」就行。"}
+            return {"action": "confirm", "type": "collect", "keyword": kw, "count": count,
+                    "confirm_msg": f"📥 **确认采集**\n\n• 关键词: **{kw}**\n• 数量: **{count}** 条\n• 将自动打开浏览器\n\n执行吗？"}
+
+        # ═══ 导出 ═══
+        if any(w in msg for w in ["导出", "导出数据", "导出excel", "导出表格"]):
+            return {"action": "confirm", "type": "export", "keyword": kw,
+                    "confirm_msg": f"📊 **确认导出**\n\n• {'关键词: **' + kw + '**' if kw else '**全部数据**'}\n• 格式: Excel (.xlsx)\n\n执行吗？"}
+
+        # ═══ 价格分析 ═══
+        if any(w in msg for w in ["价格分析", "分析价格", "价格分布", "均价"]):
+            if not kw:
+                return {"action": "exec", "need_clarify": True,
+                        "clarify_msg": "你想分析哪个关键词的价格？请告诉我关键词，比如「分析蓝牙耳机价格」。"}
+            return {"action": "exec", "type": "price_analysis", "keyword": kw}
+
+        # ═══ 标题/文案分析 ═══
+        if any(w in msg for w in ["标题分析", "文案分析", "标题趋势", "高频词", "文案趋势"]):
+            if not kw:
+                return {"action": "exec", "need_clarify": True,
+                        "clarify_msg": "你想分析哪个关键词的文案？请告诉我关键词。"}
+            return {"action": "exec", "type": "title_analysis", "keyword": kw}
+
+        # ═══ 数据概览 ═══
+        if any(w in msg for w in ["数据概览", "数据总览", "有多少数据", "数据统计", "查看数据"]):
+            return {"action": "exec", "type": "data_overview"}
+
+        # ═══ 市场调研 ═══
+        if any(w in msg for w in ["调研", "市场调研", "市场分析", "研究市场"]):
+            if not kw:
+                return {"action": "exec", "need_clarify": True,
+                        "clarify_msg": "你想调研什么品类？请告诉我关键词，比如「调研蓝牙耳机市场」。"}
+            return {"action": "exec", "type": "research", "keyword": kw}
+
+        # ═══ 生成分析报告 ═══
+        if any(w in msg for w in ["生成报告", "分析报告", "完整报告", "文案报告"]):
+            return {"action": "exec", "type": "analyze_report", "keyword": kw}
+
+        # ═══ 删除 ═══
+        if any(w in msg for w in ["删除", "清除数据"]):
+            if not kw:
+                return {"action": "exec", "need_clarify": True,
+                        "clarify_msg": "你想删除哪个关键词的数据？请告诉我关键词。\n\n⚠ 此操作不可恢复！"}
+            return {"action": "confirm", "type": "delete_confirm", "keyword": kw,
+                    "confirm_msg": f"⚠ **确认删除**\n\n将删除「{kw}」的所有采集数据。\n\n**此操作不可恢复！**\n\n确认吗？回复「确认」执行。"}
+
+        # ═══ 确认/是 ═══
+        if msg.strip() in ["确认", "是", "好的", "执行", "确认删除", "ok", "OK", "yes", "Yes"]:
+            if hasattr(self.main_window, '_pending_action') and self.main_window._pending_action:
+                action = self.main_window._pending_action
+                self.main_window._pending_action = None
+                return action  # 返回待确认的action直接执行
+
+        # ═══ 取消 ═══
+        if msg.strip() in ["取消", "不", "否", "no", "No", "算了"]:
+            if hasattr(self.main_window, '_pending_action'):
+                self.main_window._pending_action = None
+            return {"action": "exec", "type": "chat",
+                    "keyword": kw, "original_msg": "已取消操作。还有什么需要？"}
+
+        # ═══ 无法识别 → 普通对话 ═══
+        return {"action": "exec", "type": "chat", "keyword": kw}
+
     # ========== 对话入口 ==========
 
     def chat(self, user_message, keyword=""):
