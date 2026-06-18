@@ -1432,7 +1432,19 @@ class MainWindow(QMainWindow):
         self.chat_status_badge.set_state("思考中...", C.warning)
         QApplication.processEvents()
 
-        # 创建流式气泡（初始为空）
+        # 外层容器：状态标签 + 气泡
+        wrapper = QWidget()
+        wrapper.setStyleSheet("background:transparent;")
+        wl = QVBoxLayout(wrapper)
+        wl.setContentsMargins(0, 0, 0, 0)
+        wl.setSpacing(4)
+
+        # 状态标签（思考中）
+        self._stream_status = QLabel("● 思考中...")
+        self._stream_status.setStyleSheet(f"font-size:11px; color:{C.warning}; background:transparent; border:none; padding-left:4px;")
+        wl.addWidget(self._stream_status)
+
+        # 气泡内容
         bubble = QFrame()
         bubble.setMaximumWidth(int(self.width() * 0.82) if self.width() > 200 else 600)
         bl = QHBoxLayout(bubble)
@@ -1453,9 +1465,10 @@ class MainWindow(QMainWindow):
         bl.addWidget(self._stream_label)
         bl.addStretch()
         bubble.setStyleSheet("background:transparent;")
+        wl.addWidget(bubble)
 
         idx = self.chat_msg_layout.count() - 1
-        self.chat_msg_layout.insertWidget(max(0, idx), bubble)
+        self.chat_msg_layout.insertWidget(max(0, idx), wrapper)
         self._scroll_down()
 
         # 启动流式线程
@@ -1468,17 +1481,24 @@ class MainWindow(QMainWindow):
     def _on_stream_chunk(self, text):
         """流式逐字更新"""
         self._stream_label.setText(text)
+        self._stream_status.setText("● 生成中...")
         self._scroll_down()
 
     def _on_stream_done(self, text, is_agent=False):
         self._hide_typing()
         if is_agent:
             self.chat_status_badge.set_state("自动执行", C.info)
+        # 状态切换：完成 → 2秒后消失
+        self._stream_status.setText("● 已完成")
+        self._stream_status.setStyleSheet(f"font-size:11px; color:{C.success}; background:transparent; border:none; padding-left:4px;")
+        QTimer.singleShot(2000, lambda: self._stream_status.hide())
         self._stream_label = None
 
     def _on_stream_error(self, err):
         self._hide_typing()
         self._stream_label.setText(f"❌ {err}")
+        self._stream_status.setText("● 出错了")
+        self._stream_status.setStyleSheet(f"font-size:11px; color:{C.danger}; background:transparent; border:none; padding-left:4px;")
         self._stream_label = None
 
     def _scroll_down(self):
