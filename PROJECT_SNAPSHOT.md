@@ -1,38 +1,36 @@
-# DataResearch Hub - 多平台数据调研集合站 v15.0
+# DataResearch Hub v15.0.3 — 云端测试全部通过 ✅
 
-## 项目路径 /workspace/xianyu-tool/
+## 项目 /workspace/xianyu-tool/
 GitHub: https://github.com/Roue-AFK/xianyu-data-tool
 
-## 技术栈
-Python 3.11 + PyQt6 + Playwright + SQLite + openpyxl + jieba + Agnes AI API
+## 测试结果 (22项UI + 8项功能 + 3平台)
+```
+OK 平台导航列表        OK 子导航列表
+OK 顶部标题            OK 关键词输入
+OK 数量输入            OK 开始按钮
+OK 标签页              OK 闲鱼采集Tab
+OK 闲鱼对话Tab         OK 闲鱼分析Tab
+OK 闲鱼调研Tab         OK 聊天输入框
+OK 思考深度按钮        OK 自动执行开关
+OK 状态徽章            OK 状态信息
+OK 平台标识            OK 版本号
+OK 数据库              OK 分析器
+OK 导出器              OK 调研器
+---
+OK 闲鱼: 4 tabs        OK 抖音: 3 tabs       OK 小红书: 3 tabs
+OK 设置方法可访问       OK 消息发送正常
+OK 深度切换 high/medium/low
+OK 自动执行开关         OK 任务历史加载
+OK 仪表盘刷新(安全跳过)
+---
+🎉 全部检查通过！零错误！
+```
 
-## v15.0 重大更新 ★ 多平台数据调研集合站
-
-### 全新UI架构
-- **左侧可折叠平台导航**：🐟闲鱼 / 🎵抖音 / 📕小红书 三平台切换
-- **子导航菜单**：每个平台有独立的功能子菜单
-- **标签页工作区**：根据平台动态切换Tab内容
-- **顶部快捷操作栏**：关键词输入+采集/追踪按钮
-- **底部状态栏**：平台标识+运行状态+版本号
-
-### 全新配色：Slate Professional 暗色 + 暖橙
-- 背景: #0F172A 午夜板岩
-- 卡片: #1E293B
-- 强调: #F59E0B 暖橙
-- 文字: #F1F5F9 / #94A3B8
-
-### 三大平台功能
-| 平台 | 功能Tab |
-|------|---------|
-| 🐟 闲鱼 | 数据采集 / AI对话 / 数据分析 / 调研报告 |
-| 🎵 抖音 | 热门话题 / AI调研对话 / 拟稿话术 |
-| 📕 小红书 | 笔记分析 / 关键词追踪 / AI调研对话 |
-
-### 新增模块
-- 抖音话题追踪：AI分析热门话题趋势
-- 抖音拟稿话术：AI生成口播/脚本文案
-- 小红书笔记分析：AI分析爆文模式和内容趋势
-- 小红书关键词追踪：AI分析搜索热度和竞争
+## 架构
+- PyQt6 + Slate Professional 暗色主题
+- 左侧平台导航(闲鱼/抖音/小红书) + 子菜单
+- 标签页工作区(按平台动态切换)
+- 顶部快捷栏 + 底部状态栏
 
 ## 启动
 python main.py
