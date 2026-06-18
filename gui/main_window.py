@@ -933,6 +933,8 @@ class MainWindow(QMainWindow):
         """子导航切换"""
         if row < 0 or not hasattr(self, '_sub_items') or row >= len(self._sub_items):
             return
+        if not hasattr(self, 'tab_widget') or self.tab_widget.count() == 0:
+            return  # tab_widget 尚未初始化
         item = self._sub_items[row]
         key = item.data(Qt.ItemDataRole.UserRole)
         # 映射到tab索引
