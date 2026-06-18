@@ -1,0 +1,22 @@
+# 闲鱼数据调研工具 - 依赖清单
+# Windows 用户：pip install -r requirements.txt
+
+# 浏览器自动化（核心）
+playwright>=1.40.0
+
+# GUI 框架
+PyQt6>=6.6.0
+PyQt6-WebEngine>=6.6.0
+
+# 数据处理
+openpyxl>=3.1.0
+pandas>=2.1.0
+
+# 文案分析（中文分词）
+jieba>=0.42.1
+
+# 打包工具
+pyinstaller>=6.0.0
+
+# 工具库
+Pillow>=10.0.0

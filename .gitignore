@@ -1,0 +1,11 @@
+data/
+exports/
+images/
+__pycache__/
+*.pyc
+*.db
+*.zip
+dist/
+build/
+*.spec
+browser_data/
