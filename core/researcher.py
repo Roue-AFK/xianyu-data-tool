@@ -186,7 +186,9 @@ class MarketResearcher:
 4. 如果关键词可能涉及违规商品，请在risks中明确指出"""
 
     def _call_llm(self, prompt):
-        """调用大模型API"""
+        """调用大模型API - 带重试机制"""
+        import time as _time
+
         url = self.config.get("api_url", "")
         if not url:
             raise ValueError("API地址未配置")
@@ -197,7 +199,7 @@ class MarketResearcher:
         }
 
         data = json.dumps({
-            "model": self.config.get("model", "deepseek-chat"),
+            "model": self.config.get("model", "agnes-2.0-flash"),
             "messages": [
                 {"role": "system", "content": "你是一个专业的电商市场分析师，请始终用JSON格式回复。"},
                 {"role": "user", "content": prompt},
@@ -206,16 +208,30 @@ class MarketResearcher:
             "max_tokens": 2000,
         }).encode("utf-8")
 
-        req = Request(url, data=data, headers=headers, method="POST")
-        try:
-            with urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                content = result["choices"][0]["message"]["content"]
-                return content
-        except URLError as e:
-            raise Exception(f"API请求失败: {e.reason}")
-        except KeyError:
-            raise Exception(f"API返回格式异常: {json.dumps(result, ensure_ascii=False)[:200]}")
+        last_error = None
+        for attempt in range(3):
+            try:
+                req = Request(url, data=data, headers=headers, method="POST")
+                with urlopen(req, timeout=45) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+                    content = result["choices"][0]["message"]["content"]
+                    return content
+            except URLError as e:
+                last_error = e
+                if hasattr(e, 'code') and e.code == 429:
+                    wait = (attempt + 1) * 5
+                    _time.sleep(wait)
+                    continue
+                elif attempt < 2:
+                    _time.sleep(2)
+                    continue
+            except Exception as e:
+                last_error = e
+                if attempt < 2:
+                    _time.sleep(2)
+                    continue
+
+        raise Exception(f"API请求失败（重试3次后）: {last_error}")
 
     def _parse_ai_response(self, keyword, text):
         """解析AI返回的JSON"""
