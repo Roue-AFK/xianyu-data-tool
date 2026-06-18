@@ -16,10 +16,10 @@ from PyQt6.QtWidgets import (
     QComboBox, QStatusBar, QFormLayout, QDoubleSpinBox,
     QGridLayout, QScrollArea, QFrame, QListWidget, QListWidgetItem,
     QSplitter, QApplication, QSlider, QStackedWidget, QSizePolicy,
-    QDialog, QDialogButtonBox, QMenu, QFileDialog,
+    QDialog, QDialogButtonBox, QMenu, QFileDialog, QScrollBar,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, QPauseAnimation
-from PyQt6.QtGui import QFont, QColor, QTextCursor, QAction, QWheelEvent, QIcon, QPainter, QBrush, QPen, QLinearGradient
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QPoint, QPropertyAnimation, QEasingCurve, QSequentialAnimationGroup, QPauseAnimation, QSize
+from PyQt6.QtGui import QFont, QColor, QTextCursor, QAction, QWheelEvent, QIcon, QPainter, QBrush, QPen, QLinearGradient, QTextDocument
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -1081,299 +1081,225 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.log_text)
         return w
 
-    # ===== AI 对话（v10.0：状态指示器 + 加载动画 + 消息气泡）=====
+    # ===== AI 对话（v12.0 CodeBuddy风格：ScrollArea + 消息气泡Widget）=====
 
     def _chat_tab(self):
         w = QWidget()
         w.setStyleSheet(f"background:{C.bg};")
         vl = QVBoxLayout(w)
         vl.setSpacing(0)
-        vl.setContentsMargins(16, 10, 16, 10)
+        vl.setContentsMargins(0, 0, 0, 0)
 
-        # ═══════ 顶部状态栏 ═══════
-        top_bar = QHBoxLayout()
-        top_bar.setSpacing(8)
+        # ═══════ 顶部简洁标题栏 ═══════
+        top = QFrame()
+        top.setFixedHeight(48)
+        top.setStyleSheet(f"background:{C.card}; border-bottom:1px solid {C.border};")
+        th = QHBoxLayout(top)
+        th.setContentsMargins(16, 0, 12, 0)
 
-        # AI 头像 + 名称
-        avatar_frame = QFrame()
-        avatar_frame.setFixedSize(40, 40)
-        avatar_frame.setStyleSheet(f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {C.primary},stop:1 {C.purple}); border-radius:20px;")
-        avl = QVBoxLayout(avatar_frame)
-        avl.setContentsMargins(0,0,0,0)
-        al = QLabel("🤖")
-        al.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        al.setStyleSheet("font-size:18px; border:none; background:transparent;")
-        avl.addWidget(al)
-        top_bar.addWidget(avatar_frame)
+        title = QLabel("💬 AI 对话")
+        title.setStyleSheet(f"font-size:14px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
+        th.addWidget(title)
 
-        ai_info = QVBoxLayout()
-        ai_info.setSpacing(0)
-        ai_name = QLabel("闲鱼运营AI助手")
-        ai_name.setStyleSheet(f"font-size:14px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
-        ai_info.addWidget(ai_name)
-
-        # 状态徽章行
-        status_row = QHBoxLayout()
-        status_row.setSpacing(6)
-        self.chat_status_badge = StatusBadge("就绪", C.success)
-        status_row.addWidget(self.chat_status_badge)
-
-        self.chat_provider_label = QLabel("")
-        self.chat_provider_label.setStyleSheet(f"font-size:10px; color:{C.text_muted}; border:none; background:transparent;")
-        status_row.addWidget(self.chat_provider_label)
-        status_row.addStretch()
-
-        # ═══ 自动执行模式开关 ═══
-        auto_frame = QFrame()
-        auto_frame.setFixedHeight(26)
-        auto_frame.setStyleSheet(f"""
-            QFrame {{ background:{C.card}; border:1px solid {C.border}; border-radius:13px; padding:0 6px; }}
-        """)
-        auto_hl = QHBoxLayout(auto_frame)
-        auto_hl.setContentsMargins(6, 0, 4, 0)
-        auto_hl.setSpacing(4)
+        # 自动执行开关
         self.agent_toggle = QCheckBox("自动执行")
-        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:11px; color:{C.text_dim}; spacing:4px; border:none; background:transparent; }}")
-        self.agent_toggle.setToolTip("开启后AI将作为操作Agent，与你讨论具体操作步骤并自动执行")
+        self.agent_toggle.setStyleSheet(f"QCheckBox {{ font-size:11px; color:{C.text_dim}; spacing:4px; border:none; background:transparent; }} QCheckBox::indicator {{ width:16px; height:16px; }}")
         self.agent_toggle.toggled.connect(self._on_agent_mode_toggled)
-        auto_hl.addWidget(self.agent_toggle)
-        status_row.addWidget(auto_frame)
-        # ═══════════════════════
+        th.addWidget(self.agent_toggle)
+        th.addSpacing(8)
 
-        ai_info.addLayout(status_row)
-        top_bar.addLayout(ai_info)
-
-        top_bar.addStretch()
-
-        # 快捷标签
-        for tag_name in ["运营策略", "文案优化", "定价分析", "选品建议", "客户沟通"]:
-            tag = QPushButton(tag_name)
-            tag.setFixedHeight(26)
-            tag.setCursor(Qt.CursorShape.PointingHandCursor)
-            tag.setStyleSheet(f"""
-                QPushButton {{
-                    background: {C.card}; border: 1px solid {C.border}; border-radius: 13px;
-                    padding: 3px 14px; font-size: 11px; color: {C.text_dim};
-                }}
-                QPushButton:hover {{
-                    background: {C.primary_bg}; border-color: {C.primary}; color: {C.primary};
-                }}
-            """)
-            tag.clicked.connect(lambda checked, t=tag_name: self._on_quick_tag(t))
-            top_bar.addWidget(tag)
-
-        vl.addLayout(top_bar)
-        vl.addSpacing(10)
-
-        # ═══════ 对话区（消息气泡用HTML渲染） ═══════
-        self.chat_display = QTextEdit()
-        self.chat_display.setReadOnly(True)
-        self.chat_display.setFont(QFont("Microsoft YaHei", 11))
-        self.chat_display.setStyleSheet(f"""
-            QTextEdit {{
-                background: {C.card};
-                color: {C.text};
-                border: 1px solid {C.border};
-                border-radius: 14px;
-                padding: 20px;
-                line-height: 1.8;
-            }}
-            QTextEdit:focus {{ border-color: {C.primary}; }}
-        """)
-        self.chat_display.setPlaceholderText(
-            "👋 你好！我是闲鱼运营AI助手\n\n"
-            "💬 自由对话：直接输入问题，我会帮你解答\n"
-            "⚡ 自动执行：勾选上方「自动执行」后，告诉我你要做什么，我会帮你操作软件\n"
-            "  • 「采集蓝牙耳机30条」→ 自动开始采集\n"
-            "  • 「导出所有数据」→ 自动导出Excel\n"
-            "  • 「分析蓝牙耳机价格」→ 生成价格报告\n"
-            "  • 「调研iPhone市场」→ 市场调研报告\n\n"
-            "📋 快捷标签：运营策略/文案优化/定价分析/选品建议/客户沟通"
-        )
-        vl.addWidget(self.chat_display)
-
-        vl.addSpacing(8)
-
-        # ═══════ 底部输入卡片 ═══════
-        input_card = QFrame()
-        input_card.setStyleSheet(f"QFrame {{ background: {C.card}; border: 1px solid {C.border}; border-radius: 14px; }}")
-        icl = QVBoxLayout(input_card)
-        icl.setSpacing(6)
-        icl.setContentsMargins(14, 10, 14, 12)
-
-        # 输入框 + 加载动画行
-        input_row = QHBoxLayout()
-        input_row.setSpacing(8)
-        self.chat_input = QLineEdit()
-        self.chat_input.setPlaceholderText("输入你的问题... 如：蓝牙耳机怎么定价？")
-        self.chat_input.setFixedHeight(44)
-        self.chat_input.setStyleSheet(f"""
-            QLineEdit {{
-                border: 2px solid {C.input_border};
-                border-radius: 22px;
-                padding: 10px 18px;
-                font-size: 13px;
-                background: {C.bg};
-                color: {C.text};
-            }}
-            QLineEdit:focus {{
-                border-color: {C.primary};
-                background: {C.primary_bg};
-            }}
-        """)
-        self.chat_input.returnPressed.connect(self._on_send_message)
-        input_row.addWidget(self.chat_input)
-
-        # 跳动点动画（Codex风格）
-        self.typing_indicator = TypingIndicator()
-        self.typing_indicator.hide()
-        input_row.addWidget(self.typing_indicator)
-
-        send_btn = QPushButton("发送")
-        send_btn.setFixedSize(72, 44)
-        send_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {C.primary};
-                color: white;
-                font-weight: bold;
-                border: none;
-                border-radius: 22px;
-                font-size: 13px;
-            }}
-            QPushButton:hover {{ background: {C.primary_hover}; }}
-            QPushButton:pressed {{ background: #E8951E; }}
-            QPushButton:disabled {{ background: {C.border}; color: {C.text_muted}; }}
-        """)
-        send_btn.clicked.connect(self._on_send_message)
-        input_row.addWidget(send_btn)
-        icl.addLayout(input_row)
-
-        # 底部操作行
-        bsl = QHBoxLayout()
-        bsl.setSpacing(8)
-        scene_label = QLabel("场景")
-        scene_label.setStyleSheet(f"font-size:10px; color:{C.text_muted}; background:transparent; border:none;")
-        bsl.addWidget(scene_label)
+        # 场景选择
         self.chat_scene_combo = NoWheelComboBox()
-        self.chat_scene_combo.setFixedWidth(120)
-        self.chat_scene_combo.setFixedHeight(26)
+        self.chat_scene_combo.setFixedWidth(130)
+        self.chat_scene_combo.setFixedHeight(28)
         self.chat_scene_combo.addItem("💡 自由对话", "自由对话")
         self.chat_scene_combo.currentIndexChanged.connect(self._on_chat_scene_changed)
-        bsl.addWidget(self.chat_scene_combo)
+        th.addWidget(self.chat_scene_combo)
 
         self.chat_type_combo = NoWheelComboBox()
         self.chat_type_combo.setFixedWidth(120)
-        self.chat_type_combo.setFixedHeight(26)
-        self.chat_type_combo.setVisible(False)
-        bsl.addWidget(self.chat_type_combo)
+        self.chat_type_combo.setFixedHeight(28)
+        self.chat_type_combo.hide()
+        th.addWidget(self.chat_type_combo)
 
-        self.chat_template_btn = QPushButton("使用模板")
-        self.chat_template_btn.setFixedHeight(26)
-        self.chat_template_btn.setVisible(False)
-        self.chat_template_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.chat_template_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {C.purple}; color: white; font-weight: bold;
-                border: none; border-radius: 13px; padding: 3px 14px; font-size: 11px;
-            }}
-            QPushButton:hover {{ background: #5B21B6; }}
+        th.addStretch()
+
+        # 状态徽章
+        self.chat_status_badge = StatusBadge("就绪", C.success)
+        th.addWidget(self.chat_status_badge)
+
+        vl.addWidget(top)
+
+        # ═══════ 消息列表（ScrollArea） ═══════
+        self.chat_scroll = QScrollArea()
+        self.chat_scroll.setWidgetResizable(True)
+        self.chat_scroll.setStyleSheet(f"""
+            QScrollArea {{ background:{C.bg}; border:none; }}
+            QScrollBar:vertical {{ background:transparent; width:6px; margin:2px; }}
+            QScrollBar::handle:vertical {{ background:{C.scrollbar}; border-radius:3px; min-height:30px; }}
+            QScrollBar::handle:vertical:hover {{ background:{C.scrollbar_hover}; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
         """)
-        self.chat_template_btn.clicked.connect(self._on_use_template)
-        bsl.addWidget(self.chat_template_btn)
 
-        bsl.addStretch()
-        clear_btn = QPushButton("清空对话")
-        clear_btn.setFixedHeight(26)
-        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; color: {C.text_muted}; font-weight: normal;
-                border: 1px solid {C.border}; border-radius: 13px; padding: 3px 14px; font-size: 11px;
+        self.chat_msg_container = QWidget()
+        self.chat_msg_container.setStyleSheet(f"background:transparent;")
+        self.chat_msg_layout = QVBoxLayout(self.chat_msg_container)
+        self.chat_msg_layout.setSpacing(8)
+        self.chat_msg_layout.setContentsMargins(20, 16, 20, 16)
+        self.chat_msg_layout.addStretch()
+        self.chat_scroll.setWidget(self.chat_msg_container)
+        vl.addWidget(self.chat_scroll)
+
+        # ═══════ 底部输入栏 ═══════
+        bottom = QFrame()
+        bottom.setStyleSheet(f"background:{C.card}; border-top:1px solid {C.border};")
+        bl = QVBoxLayout(bottom)
+        bl.setSpacing(4)
+        bl.setContentsMargins(16, 8, 16, 10)
+
+        ir = QHBoxLayout()
+        ir.setSpacing(8)
+        self.chat_input = QTextEdit()
+        self.chat_input.setPlaceholderText("输入消息... (Enter发送，Shift+Enter换行)")
+        self.chat_input.setFixedHeight(52)
+        self.chat_input.setAcceptRichText(False)
+        self.chat_input.setStyleSheet(f"""
+            QTextEdit {{
+                border: 1px solid {C.border}; border-radius: 10px; padding: 8px 12px;
+                font-size:13px; background:{C.bg}; color:{C.text};
             }}
-            QPushButton:hover {{ background: {C.danger}18; color: {C.danger}; border-color: {C.danger}; }}
+            QTextEdit:focus {{ border-color:{C.primary}; }}
         """)
-        clear_btn.clicked.connect(self._on_clear_chat)
-        bsl.addWidget(clear_btn)
-        icl.addLayout(bsl)
+        self.chat_input.installEventFilter(self)
+        ir.addWidget(self.chat_input)
 
-        vl.addWidget(input_card)
+        self.typing_indicator = TypingIndicator()
+        self.typing_indicator.hide()
+        ir.addWidget(self.typing_indicator)
+
+        send_btn = QPushButton("发送")
+        send_btn.setFixedSize(64, 52)
+        send_btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.primary}; color:white; font-weight:bold; border:none; border-radius:10px; font-size:13px; }}
+            QPushButton:hover {{ background:{C.primary_hover}; }}
+        """)
+        send_btn.clicked.connect(self._on_send_message)
+        ir.addWidget(send_btn)
+        bl.addLayout(ir)
+
+        vl.addWidget(bottom)
 
         self._init_assistant()
         self._populate_chat_scenes()
+        self._add_welcome_message()
         return w
 
+    def eventFilter(self, obj, event):
+        """拦截Enter发送消息"""
+        from PyQt6.QtCore import QEvent
+        if obj == self.chat_input and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Return and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
+                self._on_send_message()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _add_welcome_message(self):
+        """添加欢迎消息气泡"""
+        welcome = (
+            "👋 你好！我是**闲鱼运营AI助手**\n\n"
+            "我可以帮你：\n"
+            "- 制定运营策略、优化文案标题\n"
+            "- 分析价格趋势、提供选品建议\n"
+            "- 客户沟通话术、数据分析报告\n\n"
+            "💡 勾选「**自动执行**」后，我还能帮你操作软件：\n"
+            "「采集蓝牙耳机30条」「导出数据」「分析价格」"
+        )
+        self._append_message("ai", welcome)
+
+    def _append_message(self, role, text):
+        """核心：添加一条消息气泡Widget"""
+        bubble = QFrame()
+        bubble.setMaximumWidth(int(self.width() * 0.82) if self.width() > 200 else 600)
+
+        bl = QHBoxLayout(bubble)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(8)
+
+        if role == "user":
+            bl.addStretch()
+            # 用户气泡：橙色右对齐
+            content = QLabel(text)
+            content.setWordWrap(True)
+            content.setTextFormat(Qt.TextFormat.MarkdownText)
+            content.setStyleSheet(f"""
+                QLabel {{
+                    background: {C.primary}; color: white;
+                    padding: 10px 16px; border-radius: 16px 4px 16px 16px;
+                    font-size: 13px; line-height: 1.6;
+                }}
+            """)
+            bl.addWidget(content)
+            bubble.setStyleSheet("background:transparent;")
+        else:
+            # AI气泡：浅灰左对齐
+            content = QLabel(text)
+            content.setWordWrap(True)
+            content.setTextFormat(Qt.TextFormat.MarkdownText)
+            content.setStyleSheet(f"""
+                QLabel {{
+                    background: {C.card}; color: {C.text};
+                    padding: 12px 18px; border-radius: 4px 16px 16px 16px;
+                    font-size: 13px; line-height: 1.7;
+                    border: 1px solid {C.border};
+                }}
+            """)
+            bl.addWidget(content)
+            bl.addStretch()
+            bubble.setStyleSheet("background:transparent;")
+
+        # 插入到 stretch 之前（倒数第一个是stretch）
+        idx = self.chat_msg_layout.count() - 1
+        self.chat_msg_layout.insertWidget(max(0, idx), bubble)
+
+        # 滚动到底部
+        QTimer.singleShot(50, lambda: self.chat_scroll.verticalScrollBar().setValue(
+            self.chat_scroll.verticalScrollBar().maximum()))
+
     def _show_typing(self):
-        """显示AI思考中的动画"""
         self.chat_status_badge.set_state("思考中...", C.warning)
         self.chat_provider_label.setText(f"({self.researcher.config.get('provider','').upper()})")
         self.typing_indicator.start()
 
     def _hide_typing(self):
-        """隐藏动画，恢复就绪"""
         self.typing_indicator.stop()
         self.chat_status_badge.set_state("就绪", C.success)
         self.chat_provider_label.setText("")
 
-    def _append_user_bubble(self, text):
-        """用户消息气泡"""
-        self.chat_display.append(
-            f"<div style='text-align:right; margin:8px 0;'>"
-            f"<span style='display:inline-block; background:{C.primary}; color:white; "
-            f"padding:10px 16px; border-radius:18px 4px 18px 18px; max-width:75%; "
-            f"text-align:left; font-size:12px; line-height:1.5;'>{text}</span>"
-            f"</div>"
-        )
-
-    def _append_ai_bubble(self, text):
-        """AI消息气泡 — Markdown渲染"""
-        # 移除HTML标签转义（让Markdown正确渲染）
-        import html
-        safe = html.escape(text)
-        self.chat_display.append(
-            f"<div style='text-align:left; margin:8px 0;'>"
-            f"<span style='display:inline-block; background:{C.primary_bg}; color:{C.text}; "
-            f"padding:12px 18px; border-radius:4px 18px 18px 18px; max-width:85%; "
-            f"text-align:left; font-size:12px; line-height:1.6; "
-            f"border:1px solid {C.primary}20;'>"
-            f"{text}"
-            f"</span>"
-            f"</div>"
-        )
-
     def _on_quick_tag(self, tag_name):
-        """点击顶部快捷标签直接发起对话"""
         kw = self.nav_keyword.text().strip() or ""
         if not kw:
-            self._append_ai_bubble(f"📌 **{tag_name}** — 请先在导航栏输入关键词，我再帮你分析。")
+            self._append_message("ai", f"📌 **{tag_name}** — 请先在导航栏输入关键词。")
             return
-        self._append_user_bubble(f"帮我做{tag_name}")
+        self._append_message("user", f"帮我做{tag_name}")
         QApplication.processEvents()
         self._show_typing()
-        QApplication.processEvents()
         reply = self.ai_assistant.chat_with_scenario(tag_name, kw)
-        if reply:
-            self._append_ai_bubble(reply)
+        if reply: self._append_message("ai", reply)
         self._hide_typing()
 
     def _populate_chat_scenes(self):
-        """填充场景和类型下拉框"""
-        # 场景下拉已包含"自由对话"
         for name, info in AIAssistant.SCENARIOS.items():
             if name != "自由对话":
                 self.chat_scene_combo.addItem(f"{info['icon']} {name}", name)
-        # 默认选自由对话，类型下拉隐藏
         self._on_chat_scene_changed(0)
 
     def _on_chat_scene_changed(self, idx):
-        """场景切换时更新类型下拉框"""
         if idx < 0: return
         scene_name = self.chat_scene_combo.currentData()
         self.chat_type_combo.clear()
         if scene_name == "自由对话":
             self.chat_type_combo.hide()
-            self.chat_template_btn.hide()
             return
-        # 根据场景给出类型选项
         type_options = {
             "运营策略": ["完整策略方案", "账号定位建议", "提升曝光技巧", "发布时间策略"],
             "文案优化": ["5种风格标题", "真诚实惠型", "专业测评型", "急售捡漏型", "故事营销型", "简单直接型"],
@@ -1384,180 +1310,116 @@ class MainWindow(QMainWindow):
         for opt in type_options.get(scene_name, ["默认"]):
             self.chat_type_combo.addItem(opt, opt)
         self.chat_type_combo.show()
-        self.chat_template_btn.show()
 
     def _on_use_template(self):
-        """使用模板发起对话"""
         scene_name = self.chat_scene_combo.currentData()
-        type_name = self.chat_type_combo.currentData() if self.chat_type_combo.currentData() else ""
-        kw = self.nav_keyword.text().strip() or ""
-        if not kw:
-            kw = self.chat_input.text().strip()
-
-        if scene_name == "自由对话":
-            return
-
-        self._append_user_bubble(f"📌 {scene_name} → {type_name}")
-        QApplication.processEvents()
-        self._show_typing()
-        QApplication.processEvents()
+        type_name = self.chat_type_combo.currentData() or ""
+        kw = self.nav_keyword.text().strip() or self.chat_input.toPlainText().strip()
+        if scene_name == "自由对话": return
+        self._append_message("user", f"📌 {scene_name} → {type_name}")
+        QApplication.processEvents(); self._show_typing()
         prompt = self._build_template_prompt(scene_name, type_name, kw)
         reply = self.ai_assistant.chat(prompt, kw)
-        if reply:
-            self._append_ai_bubble(reply)
+        if reply: self._append_message("ai", reply)
         self._hide_typing()
 
     def _build_template_prompt(self, scene_name, type_name, keyword):
-        """根据场景+类型构建精准prompt"""
         base = AIAssistant.SCENARIOS.get(scene_name, {}).get("prompt", "")
-        if not base:
-            return f"请针对「{keyword}」提供{type_name}方面的建议。"
-
-        # 如果用户选了具体类型，在prompt后追加聚焦指令
+        if not base: return f"请针对「{keyword}」提供{type_name}方面的建议。"
         focus_map = {
-            "完整策略方案": "\n请给出完整全面的策略，覆盖所有要点。",
-            "账号定位建议": "\n请重点展开第1点：账号定位和人设打造。",
-            "提升曝光技巧": "\n请重点展开第6点：如何提升曝光和转化。",
-            "发布时间策略": "\n请重点展开第5点：发布时间和频率。",
-            "5种风格标题": "",
-            "真诚实惠型": "\n请只写真诚实惠型风格，写3个完整标题+描述。",
-            "专业测评型": "\n请只写专业测评型风格，写3个完整标题+描述。",
-            "急售捡漏型": "\n请只写急售捡漏型风格，写3个完整标题+描述。",
-            "故事营销型": "\n请只写故事营销型风格，写3个完整标题+描述。",
-            "简单直接型": "\n请只写简单直接型风格，写3个完整标题+描述。",
-            "行情价格分析": "\n请重点展开第1-2点：行情价格区间和影响因素。",
-            "定价策略建议": "\n请重点展开第3点：如何根据成色/配件/保修定价。",
-            "价格谈判技巧": "\n请重点展开第4点：价格谈判技巧。",
-            "降价涨价时机": "\n请重点展开第5点：什么时候适合降价/涨价。",
-            "竞争分析": "\n请重点展开第1点：品类竞争情况。",
-            "细分品类推荐": "\n请重点展开第2点：哪些细分品类更值得做。",
-            "货源渠道建议": "\n请重点展开第3点：货源渠道建议。",
-            "利润空间分析": "\n请重点展开第4点：利润空间分析。",
-            "回复话术模板": "\n请重点展开第1点：常见客户问题及标准回复话术。",
-            "砍价应对技巧": "\n请重点展开第2点：如何应对砍价。",
-            "售后纠纷处理": "\n请重点展开第3点：如何处理售后纠纷。",
-            "好评引导技巧": "\n请重点展开第4点：如何引导好评。",
+            "完整策略方案":"\n请给出完整全面的策略，覆盖所有要点。","账号定位建议":"\n请重点展开第1点：账号定位和人设打造。",
+            "提升曝光技巧":"\n请重点展开第6点：如何提升曝光和转化。","发布时间策略":"\n请重点展开第5点：发布时间和频率。",
+            "5种风格标题":"","真诚实惠型":"\n请只写真诚实惠型风格，写3个完整标题+描述。",
+            "专业测评型":"\n请只写专业测评型风格，写3个完整标题+描述。","急售捡漏型":"\n请只写急售捡漏型风格，写3个完整标题+描述。",
+            "故事营销型":"\n请只写故事营销型风格，写3个完整标题+描述。","简单直接型":"\n请只写简单直接型风格，写3个完整标题+描述。",
+            "行情价格分析":"\n请重点展开第1-2点：行情价格区间和影响因素。","定价策略建议":"\n请重点展开第3点：如何根据成色/配件/保修定价。",
+            "价格谈判技巧":"\n请重点展开第4点：价格谈判技巧。","降价涨价时机":"\n请重点展开第5点：什么时候适合降价/涨价。",
+            "竞争分析":"\n请重点展开第1点：品类竞争情况。","细分品类推荐":"\n请重点展开第2点：哪些细分品类更值得做。",
+            "货源渠道建议":"\n请重点展开第3点：货源渠道建议。","利润空间分析":"\n请重点展开第4点：利润空间分析。",
+            "回复话术模板":"\n请重点展开第1点：常见客户问题及标准回复话术。","砍价应对技巧":"\n请重点展开第2点：如何应对砍价。",
+            "售后纠纷处理":"\n请重点展开第3点：如何处理售后纠纷。","好评引导技巧":"\n请重点展开第4点：如何引导好评。",
         }
         extra = focus_map.get(type_name, "")
         return base.format(keyword=keyword) if keyword else base + extra
 
     def _init_assistant(self):
-        """初始化AI助手并加载记忆"""
-        mem_path = self.cfg.get("ui", {}).get("memory_path",
-                    os.path.join(self.cfg["paths"]["data_dir"], "ai_memory"))
-        self.ai_assistant = AIAssistant(config=self.researcher.config, db=self.db,
-                                         memory_path=mem_path, main_window=self)
+        mem_path = self.cfg.get("ui", {}).get("memory_path", os.path.join(self.cfg["paths"]["data_dir"], "ai_memory"))
+        self.ai_assistant = AIAssistant(config=self.researcher.config, db=self.db, memory_path=mem_path, main_window=self)
         self.ai_assistant.load_memory()
         self.agent_mode = False
 
     def _on_agent_mode_toggled(self, checked):
-        """自动执行模式切换"""
         self.agent_mode = checked
         if checked:
             self.chat_status_badge.set_state("自动执行", C.info)
-            self._append_ai_bubble(
+            self._append_message("ai",
                 "⚡ **自动执行模式已开启**\n\n"
-                "我现在是你的操作Agent。请告诉我你要做什么，我会：\n"
-                "1. 先确认你的具体需求\n"
-                "2. 确认后自动执行操作\n"
-                "3. 完成后告诉你结果\n\n"
-                "**我可以执行的操作：**\n"
-                "• 📥 采集数据 — 说「采集蓝牙耳机30条」\n"
-                "• 📊 导出Excel — 说「导出所有数据」\n"
-                "• 📈 价格分析 — 说「分析蓝牙耳机价格」\n"
-                "• 📝 文案分析 — 说「分析蓝牙耳机文案」\n"
-                "• 🔍 市场调研 — 说「调研iPhone市场」\n"
-                "• 🗑 删除数据 — 说「删除蓝牙耳机的数据」\n\n"
-                "请告诉我你要做什么？"
+                "我现在是你的操作Agent。请告诉我要做什么：\n\n"
+                "• 📥 「采集蓝牙耳机30条」— 开始采集\n"
+                "• 📊 「导出数据」— 导出Excel\n"
+                "• 📈 「分析价格」— 价格分析报告\n"
+                "• 🔍 「调研市场」— 市场调研报告\n\n"
+                "请告诉我你要执行什么操作？"
             )
-            self.chat_input.setPlaceholderText("告诉我你要执行什么操作... 如：采集蓝牙耳机30条")
-            # 更新assistant为Agent模式
             self.ai_assistant.set_agent_mode(True)
         else:
             self.chat_status_badge.set_state("就绪", C.success)
-            self._append_ai_bubble("💬 **已切换回自由对话模式**，你可以问我任何问题。")
-            self.chat_input.setPlaceholderText("输入你的问题... 如：蓝牙耳机怎么定价？")
+            self._append_message("ai", "💬 **已切换回自由对话模式**")
             self.ai_assistant.set_agent_mode(False)
 
     def _on_send_message(self):
-        msg = self.chat_input.text().strip()
+        msg = self.chat_input.toPlainText().strip()
         if not msg: return
         self.chat_input.clear()
-        self._append_user_bubble(msg)
+        self._append_message("user", msg)
         QApplication.processEvents()
         kw = self.nav_keyword.text().strip() or ""
 
-        # ═══ 自动执行模式 ═══
         if self.agent_mode:
             self._show_typing()
             self.chat_status_badge.set_state("分析中...", C.warning)
             QApplication.processEvents()
-
-            # Agent: 先解析用户意图，决定是否直接执行还是需要澄清
             action = self.ai_assistant.parse_agent_action(msg, kw)
             if action.get("need_clarify"):
-                # 需要澄清
-                self._hide_typing()
-                self.chat_status_badge.set_state("等待确认", C.info)
-                self._append_ai_bubble(action["clarify_msg"])
-                return
-
+                self._hide_typing(); self.chat_status_badge.set_state("等待确认", C.info)
+                self._append_message("ai", action["clarify_msg"]); return
             if action.get("action") == "exec":
-                # 直接执行
                 self.chat_status_badge.set_state("执行中...", C.warning)
                 QApplication.processEvents()
                 result = self._execute_agent_action(action, msg)
-                self._hide_typing()
-                self.chat_status_badge.set_state("自动执行", C.info)
-                self._append_ai_bubble(result)
-                return
-
+                self._hide_typing(); self.chat_status_badge.set_state("自动执行", C.info)
+                self._append_message("ai", result); return
             if action.get("action") == "confirm":
-                # 需要确认后执行
-                self._hide_typing()
-                self.chat_status_badge.set_state("等待确认", C.info)
+                self._hide_typing(); self.chat_status_badge.set_state("等待确认", C.info)
                 self._pending_action = action
-                self._append_ai_bubble(
-                    f"{action['confirm_msg']}\n\n"
-                    f"回复「确认」或「是」来执行，回复其他内容取消。"
-                )
-                return
-
-            # 普通对话（Agent模式下的非操作对话）
+                self._append_message("ai", f"{action['confirm_msg']}\n\n回复「确认」执行。"); return
             reply = self.ai_assistant.chat(msg, kw)
-            self._append_ai_bubble(reply)
-            self._hide_typing()
-            self.chat_status_badge.set_state("自动执行", C.info)
+            self._append_message("ai", reply)
+            self._hide_typing(); self.chat_status_badge.set_state("自动执行", C.info)
             return
 
-        # ═══ 普通模式 ═══
         self._show_typing()
-        kw = self.nav_keyword.text().strip() or ""
-
-        # 先让AI问问题明确需求
         need_clarify = self.ai_assistant.check_if_need_clarify(msg)
         if need_clarify:
             QApplication.processEvents()
-            self._append_ai_bubble(need_clarify)
-            self._hide_typing()
-            self.chat_status_badge.set_state("等待回复", C.info)
+            self._append_message("ai", need_clarify)
+            self._hide_typing(); self.chat_status_badge.set_state("等待回复", C.info)
             return
-
         reply = self.ai_assistant.chat(msg, kw)
-        self._append_ai_bubble(reply)
+        self._append_message("ai", reply)
         self._hide_typing()
-        self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
 
     def _on_clear_chat(self):
         reply = QMessageBox.question(self, "确认清空",
             "<h3>清空对话</h3><p>是否同时清除AI记忆？</p>",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel)
-        if reply == QMessageBox.StandardButton.Cancel:
-            return
-        if reply == QMessageBox.StandardButton.Yes:
-            self.ai_assistant.clear_memory()
+        if reply == QMessageBox.StandardButton.Cancel: return
+        if reply == QMessageBox.StandardButton.Yes: self.ai_assistant.clear_memory()
         self.ai_assistant.clear_history()
-        self.chat_display.clear()
+        # 清空所有消息气泡（保留stretch）
+        while self.chat_msg_layout.count() > 1:
+            item = self.chat_msg_layout.takeAt(0)
+            if item.widget(): item.widget().deleteLater()
 
     def _execute_agent_action(self, action, original_msg):
         """Agent自动执行操作"""
