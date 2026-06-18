@@ -207,7 +207,7 @@ class MainWindow(QMainWindow):
         self._refresh_dashboard()
 
     def _init_ui(self):
-        self.setWindowTitle("🐟 闲鱼数据调研工具 v4.0")
+        self.setWindowTitle("🐟 闲鱼数据调研工具 v5.0")
         self.setMinimumSize(1200, 800)
         self.resize(1300, 880)
 
@@ -336,7 +336,7 @@ class MainWindow(QMainWindow):
         logo.setStyleSheet(f"font-size:19px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
         nl.addWidget(logo)
 
-        ver = QLabel("v4.0")
+        ver = QLabel("v5.0")
         ver.setStyleSheet(f"font-size:10px; color:{C.primary}; background:{C.primary_bg}; border-radius:4px; padding:2px 8px; margin-left:8px;")
         nl.addWidget(ver)
         nl.addStretch()
@@ -687,6 +687,78 @@ class MainWindow(QMainWindow):
         lay.setSpacing(20)
         lay.setContentsMargins(28, 24, 28, 24)
 
+        # ===== AI 调研设置 =====
+        ai_group = QGroupBox("🤖 AI 市场调研设置")
+        ai_layout = QFormLayout(ai_group)
+        ai_layout.setSpacing(14)
+
+        # 加载AI配置
+        from core.researcher import MarketResearcher
+        mr = MarketResearcher()
+        ai_config = mr.config
+
+        self.ai_enabled = QCheckBox("启用AI大模型调研（需要配置API）")
+        self.ai_enabled.setChecked(ai_config.get("enabled", False))
+        self.ai_enabled.setToolTip("勾选后优先使用大模型分析，失败自动降级到本地规则")
+        ai_layout.addRow(self.ai_enabled)
+
+        # API提供商选择
+        self.ai_provider = QComboBox()
+        providers = MarketResearcher.API_PROVIDERS
+        for key, info in providers.items():
+            self.ai_provider.addItem(f"{info['name']} ({info.get('price_note', '')})", key)
+        current_provider = ai_config.get("provider", "deepseek")
+        for i in range(self.ai_provider.count()):
+            if self.ai_provider.itemData(i) == current_provider:
+                self.ai_provider.setCurrentIndex(i)
+                break
+        self.ai_provider.currentIndexChanged.connect(self._on_provider_changed)
+        ai_layout.addRow("API提供商:", self.ai_provider)
+
+        # API地址
+        self.ai_url = QLineEdit()
+        self.ai_url.setPlaceholderText("https://api.deepseek.com/v1/chat/completions")
+        self.ai_url.setText(ai_config.get("api_url", ""))
+        ai_layout.addRow("API地址:", self.ai_url)
+
+        # API密钥
+        self.ai_key = QLineEdit()
+        self.ai_key.setPlaceholderText("sk-xxxxxxxxxxxxxxxx")
+        self.ai_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.ai_key.setText(ai_config.get("api_key", ""))
+        ai_layout.addRow("API密钥:", self.ai_key)
+
+        # 模型名
+        self.ai_model = QLineEdit()
+        self.ai_model.setPlaceholderText("deepseek-chat")
+        self.ai_model.setText(ai_config.get("model", ""))
+        ai_layout.addRow("模型名称:", self.ai_model)
+
+        # 获取API Key链接
+        self.ai_key_link = QLabel("")
+        self.ai_key_link.setOpenExternalLinks(True)
+        self.ai_key_link.setStyleSheet(f"color:{C.info}; font-size:11px; background:transparent;")
+        ai_layout.addRow("", self.ai_key_link)
+        self._on_provider_changed(self.ai_provider.currentIndex())
+
+        # 测试按钮
+        test_row = QHBoxLayout()
+        self.ai_test_btn = QPushButton("🧪 测试连接")
+        self.ai_test_btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.info}; color:white; font-weight:bold; padding:8px 20px; border:none; }}
+            QPushButton:hover {{ background:#0066CC; }}
+        """)
+        self.ai_test_btn.clicked.connect(self._on_test_ai)
+        test_row.addWidget(self.ai_test_btn)
+        self.ai_test_status = QLabel("")
+        self.ai_test_status.setStyleSheet("font-size:12px; background:transparent;")
+        test_row.addWidget(self.ai_test_status)
+        test_row.addStretch()
+        ai_layout.addRow(test_row)
+
+        lay.addWidget(ai_group)
+
+        # ===== 防封策略设置 =====
         ag = QGroupBox("🛡 防封策略设置")
         al = QFormLayout(ag)
         al.setSpacing(14)
@@ -738,6 +810,82 @@ class MainWindow(QMainWindow):
         lay.addWidget(sv)
         lay.addStretch()
         scroll.setWidget(w)
+        return scroll
+
+    def _on_provider_changed(self, index):
+        """切换API提供商时更新默认配置"""
+        key = self.ai_provider.itemData(index)
+        if not key:
+            return
+        from core.researcher import MarketResearcher
+        info = MarketResearcher.API_PROVIDERS.get(key, {})
+        if info.get("url") and not self.ai_url.text():
+            self.ai_url.setText(info["url"])
+        if info.get("default_model") and not self.ai_model.text():
+            self.ai_model.setText(info["default_model"])
+        if info.get("get_key_url"):
+            self.ai_key_link.setText(f"<a href='{info['get_key_url']}'>🔑 获取 {info['name']} API Key</a>")
+        else:
+            self.ai_key_link.setText("")
+
+    def _on_test_ai(self):
+        """测试AI连接"""
+        key = self.ai_key.text().strip()
+        url = self.ai_url.text().strip()
+        model = self.ai_model.text().strip()
+
+        if not key or not url:
+            self.ai_test_status.setText("❌ 请填写 API密钥 和 API地址")
+            self.ai_test_status.setStyleSheet(f"font-size:12px; color:{C.danger}; background:transparent;")
+            return
+
+        self.ai_test_status.setText("⏳ 测试中...")
+        self.ai_test_status.setStyleSheet(f"font-size:12px; color:{C.warning}; background:transparent;")
+        QApplication.processEvents()
+
+        try:
+            from core.researcher import MarketResearcher
+            mr = MarketResearcher({
+                "enabled": True, "provider": self.ai_provider.currentData(),
+                "api_key": key, "api_url": url, "model": model,
+            })
+            result = mr.research("iPhone 15")
+            if result.get("ai_powered"):
+                self.ai_test_status.setText(f"✅ 连接成功！（{result.get('model', '')}）")
+                self.ai_test_status.setStyleSheet(f"font-size:12px; color:{C.success}; background:transparent;")
+            else:
+                self.ai_test_status.setText(f"⚠ 连接成功但解析失败，已降级到本地规则")
+                self.ai_test_status.setStyleSheet(f"font-size:12px; color:{C.warning}; background:transparent;")
+        except Exception as e:
+            self.ai_test_status.setText(f"❌ 连接失败: {str(e)[:80]}")
+            self.ai_test_status.setStyleSheet(f"font-size:12px; color:{C.danger}; background:transparent;")
+
+    def _save_all_settings(self):
+        """保存所有设置"""
+        self.cfg["anti_ban"]["min_delay"] = self.set_min_delay.value()
+        self.cfg["anti_ban"]["max_delay"] = self.set_max_delay.value()
+        self.cfg["anti_ban"]["page_delay_min"] = self.set_page_min.value()
+        self.cfg["anti_ban"]["page_delay_max"] = self.set_page_max.value()
+        self.cfg["anti_ban"]["max_items_per_session"] = self.set_max_items.value()
+        self.cfg["collection"]["download_images"] = self.set_download_img.isChecked()
+        self.cfg["collection"]["image_quality"] = self.set_img_quality.value()
+        save_user_config(self.cfg)
+
+        # 保存AI配置
+        from core.researcher import MarketResearcher
+        mr = MarketResearcher()
+        ai_config = {
+            "enabled": self.ai_enabled.isChecked(),
+            "provider": self.ai_provider.currentData(),
+            "api_key": self.ai_key.text().strip(),
+            "api_url": self.ai_url.text().strip(),
+            "model": self.ai_model.text().strip(),
+        }
+        mr.save_config(ai_config)
+        # 更新当前实例的配置
+        self.researcher = MarketResearcher(ai_config)
+
+        QMessageBox.information(self, "设置已保存", "<h3>✅ 所有设置已保存</h3><p>新设置将在下次操作时生效</p>")
         return scroll
 
     # ===== 菜单 =====
@@ -955,22 +1103,11 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_last_report_path'): os.startfile(os.path.dirname(self._last_report_path))
         else: QMessageBox.information(self, "提示", "请先生成分析报告")
 
-    def _save_all_settings(self):
-        self.cfg["anti_ban"]["min_delay"] = self.set_min_delay.value()
-        self.cfg["anti_ban"]["max_delay"] = self.set_max_delay.value()
-        self.cfg["anti_ban"]["page_delay_min"] = self.set_page_min.value()
-        self.cfg["anti_ban"]["page_delay_max"] = self.set_page_max.value()
-        self.cfg["anti_ban"]["max_items_per_session"] = self.set_max_items.value()
-        self.cfg["collection"]["download_images"] = self.set_download_img.isChecked()
-        self.cfg["collection"]["image_quality"] = self.set_img_quality.value()
-        save_user_config(self.cfg)
-        QMessageBox.information(self, "设置已保存", "<h3>✅ 设置已保存</h3><p>新设置将在下次采集时生效</p>")
-
     def _on_config_dialog(self): self.tab_widget.setCurrentIndex(4)
 
     def _on_about(self):
         QMessageBox.about(self, "使用说明",
-            f"""<h2 style='color:{C.primary};'>🐟 闲鱼数据调研工具 v4.0</h2>
+            f"""<h2 style='color:{C.primary};'>🐟 闲鱼数据调研工具 v5.0</h2>
             <h3>📖 使用步骤</h3><ol>
             <li>在顶部搜索框输入关键词</li><li>设置采集数量（建议30-50条）</li>
             <li>点击「开始采集」</li><li>扫码登录闲鱼（仅首次）</li>
