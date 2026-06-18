@@ -675,7 +675,7 @@ class MainWindow(QMainWindow):
         self.current_platform = "xianyu"  # 当前激活的平台
         self._init_ui()
         self._load_task_history()
-        self._refresh_dashboard()
+        # _refresh_dashboard 在 _build_platform_tabs 内部调用
 
     def _init_ui(self):
         self.setWindowTitle("DataResearch Hub - 多平台数据调研集合站")
@@ -1027,6 +1027,9 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self._xianyu_analysis_tab, "📈 数据分析")
         self.tab_widget.addTab(self._xianyu_research_tab, "📋 调研报告")
 
+        # 延迟刷新仪表盘数据
+        QTimer.singleShot(100, self._refresh_dashboard)
+
     def _update_platform_tabs(self):
         """根据当前平台更新标签页"""
         self.tab_widget.clear()
@@ -1135,6 +1138,9 @@ class MainWindow(QMainWindow):
         return scroll
 
     def _refresh_dashboard(self):
+        # 安全检查：如果仪表盘卡片还未创建则跳过
+        if not hasattr(self, 'card_total'):
+            return
         total = self.db.get_item_count()
         self.card_total.value_label.setText(str(total))
         tasks = self.db.get_tasks(limit=100)
@@ -1176,14 +1182,15 @@ class MainWindow(QMainWindow):
         else:
             self.card_avg_price.value_label.setText("¥0")
             self.card_hot_word.value_label.setText("-")
-        self.recent_table.setRowCount(min(len(tasks), 10))
-        for i, t in enumerate(tasks[:10]):
-            self.recent_table.setItem(i, 0, QTableWidgetItem(f"#{t['id']}"))
-            self.recent_table.setItem(i, 1, QTableWidgetItem(t.get("keyword", "")))
-            self.recent_table.setItem(i, 2, QTableWidgetItem(str(t.get("item_count", 0))))
-            st = "✅ 完成" if t.get("status") == "finished" else "🔄 进行中"
-            self.recent_table.setItem(i, 3, QTableWidgetItem(st))
-            self.recent_table.setItem(i, 4, QTableWidgetItem(str(t.get("created_at", "")[:16])))
+        if hasattr(self, 'recent_table'):
+            self.recent_table.setRowCount(min(len(tasks), 10))
+            for i, t in enumerate(tasks[:10]):
+                self.recent_table.setItem(i, 0, QTableWidgetItem(f"#{t['id']}"))
+                self.recent_table.setItem(i, 1, QTableWidgetItem(t.get("keyword", "")))
+                self.recent_table.setItem(i, 2, QTableWidgetItem(str(t.get("item_count", 0))))
+                st = "✅ 完成" if t.get("status") == "finished" else "🔄 进行中"
+                self.recent_table.setItem(i, 3, QTableWidgetItem(st))
+                self.recent_table.setItem(i, 4, QTableWidgetItem(str(t.get("created_at", "")[:16])))
 
     # ===== 右键菜单 =====
 
