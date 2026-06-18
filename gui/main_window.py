@@ -778,14 +778,25 @@ class MainWindow(QMainWindow):
         """)
 
         file_menu = menubar.addMenu("文件(&F)")
-        file_menu.addAction("打开数据目录", lambda: os.startfile(self.cfg["paths"]["data_dir"]))
-        file_menu.addAction("打开导出目录", lambda: os.startfile(self.cfg["paths"]["export_dir"]))
+        data_dir_action = QAction("打开数据目录", self)
+        data_dir_action.triggered.connect(lambda: os.startfile(self.cfg["paths"]["data_dir"]))
+        file_menu.addAction(data_dir_action)
+        export_dir_action = QAction("打开导出目录", self)
+        export_dir_action.triggered.connect(lambda: os.startfile(self.cfg["paths"]["export_dir"]))
+        file_menu.addAction(export_dir_action)
         file_menu.addSeparator()
-        file_menu.addAction("退出(&Q)", self.close, "Ctrl+Q")
+        exit_action = QAction("退出(&Q)", self)
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
 
         help_menu = menubar.addMenu("帮助(&H)")
-        help_menu.addAction("使用说明", self._on_about)
-        help_menu.addAction("GitHub 项目", lambda: os.startfile("https://github.com/Roue-AFK/xianyu-data-tool"))
+        about_action = QAction("使用说明", self)
+        about_action.triggered.connect(self._on_about)
+        help_menu.addAction(about_action)
+        github_action = QAction("GitHub 项目", self)
+        github_action.triggered.connect(lambda: os.startfile("https://github.com/Roue-AFK/xianyu-data-tool"))
+        help_menu.addAction(github_action)
 
     # ========== 仪表盘刷新 ==========
 
