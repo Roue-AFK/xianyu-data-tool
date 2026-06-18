@@ -819,12 +819,17 @@ class MainWindow(QMainWindow):
             return
         from core.researcher import MarketResearcher
         info = MarketResearcher.API_PROVIDERS.get(key, {})
-        if info.get("url") and not self.ai_url.text():
+        # Agnes AI 默认填写
+        if info.get("url"):
             self.ai_url.setText(info["url"])
-        if info.get("default_model") and not self.ai_model.text():
+        if info.get("default_model"):
             self.ai_model.setText(info["default_model"])
         if info.get("get_key_url"):
-            self.ai_key_link.setText(f"<a href='{info['get_key_url']}'>🔑 获取 {info['name']} API Key</a>")
+            desc = info.get("description", "")
+            self.ai_key_link.setText(
+                f"<a href='{info['get_key_url']}'>🔑 获取 {info['name']} API Key</a>"
+                + (f" — {desc}" if desc else "")
+            )
         else:
             self.ai_key_link.setText("")
 

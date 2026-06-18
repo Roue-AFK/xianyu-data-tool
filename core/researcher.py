@@ -16,6 +16,14 @@ class MarketResearcher:
 
     # 预设的 API 提供商配置模板
     API_PROVIDERS = {
+        "agnes": {
+            "name": "Agnes AI ⭐推荐",
+            "url": "https://apihub.agnes-ai.com/v1/chat/completions",
+            "default_model": "agnes-2.0-flash",
+            "price_note": "完全免费",
+            "get_key_url": "https://platform.agnes-ai.com",
+            "description": "长期免费，无需绑卡充值，文本/图片/视频全模态",
+        },
         "deepseek": {
             "name": "DeepSeek",
             "url": "https://api.deepseek.com/v1/chat/completions",
