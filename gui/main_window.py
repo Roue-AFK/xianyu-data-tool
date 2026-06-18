@@ -463,14 +463,16 @@ class SettingsDialog(QDialog):
         try:
             result = subprocess.run(
                 "git fetch origin && git reset --hard origin/master",
-                shell=True, cwd=project_dir, capture_output=True, text=True, timeout=30
+                shell=True, cwd=project_dir, capture_output=True, timeout=30
             )
+            out = result.stdout.decode("utf-8", errors="replace").strip()
+            err = result.stderr.decode("utf-8", errors="replace").strip()
             if result.returncode == 0:
                 QMessageBox.information(self, "✅ 更新完成",
-                    f"代码已同步到最新版本！\n\n{result.stdout.strip() or '已是最新版本'}\n\n请重启应用以生效。")
+                    f"代码已同步到最新版本！\n\n{out or '已是最新版本'}\n\n请重启应用以生效。")
             else:
                 QMessageBox.warning(self, "⚠ 更新失败",
-                    f"Git 操作失败：\n{result.stderr.strip()}")
+                    f"Git 操作失败：\n{err}")
         except subprocess.TimeoutExpired:
             QMessageBox.warning(self, "⚠ 更新超时", "网络连接超时，请检查网络后重试。")
         except Exception as e:

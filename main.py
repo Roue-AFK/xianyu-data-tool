@@ -9,6 +9,10 @@ import os
 # 确保项目根目录在 Python 路径中
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 抑制 Qt 字体警告（QFont::setPointSize: Point size <= 0）
+import logging
+logging.getLogger("PyQt6").setLevel(logging.ERROR)
+
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 
