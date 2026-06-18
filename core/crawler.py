@@ -663,10 +663,8 @@ class XianyuCrawler:
         return ""
 
     async def _download_image(self, url, title):
-        """下载图片到本地"""
+        """下载图片到本地 - 使用浏览器上下文避免防盗链"""
         try:
-            import aiohttp
-
             safe_title = re.sub(r'[\\/:*?"<>|]', '_', title)[:50]
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             ext = ".jpg"
@@ -674,20 +672,65 @@ class XianyuCrawler:
                 ext = ".png"
             elif ".webp" in url.lower():
                 ext = ".webp"
+            elif ".jpeg" in url.lower():
+                ext = ".jpeg"
 
             filename = f"{safe_title}_{timestamp}{ext}"
             filepath = os.path.join(self.cfg["paths"]["image_dir"], filename)
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                    if resp.status == 200:
-                        content = await resp.read()
-                        # 检查大小
-                        max_size = self.cfg["collection"]["max_image_size_mb"] * 1024 * 1024
-                        if len(content) <= max_size:
-                            with open(filepath, "wb") as f:
-                                f.write(content)
-                            return filepath
+            # 方式1：通过浏览器页面直接下载（带Cookie和Referer，绕过防盗链）
+            try:
+                response = await self.context.request.get(
+                    url,
+                    timeout=15000,
+                    headers={
+                        "Referer": "https://www.goofish.com/",
+                        "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+                    }
+                )
+                if response.ok:
+                    content = await response.body()
+                    max_size = self.cfg["collection"]["max_image_size_mb"] * 1024 * 1024
+                    if len(content) <= max_size and len(content) > 0:
+                        with open(filepath, "wb") as f:
+                            f.write(content)
+                        return filepath
+            except Exception:
+                pass
+
+            # 方式2：通过新页面截图方式保存
+            try:
+                img_page = await self.context.new_page()
+                await img_page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                await asyncio.sleep(1)
+
+                # 获取图片元素并截图保存
+                img_el = await img_page.query_selector("img")
+                if img_el:
+                    await img_el.screenshot(path=filepath)
+                    await img_page.close()
+                    if os.path.exists(filepath) and os.path.getsize(filepath) > 100:
+                        return filepath
+                await img_page.close()
+            except Exception:
+                pass
+
+            # 方式3：用 aiohttp 带 Referer 头
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession(headers={
+                    "Referer": "https://www.goofish.com/",
+                    "User-Agent": self.cfg["xianyu"]["user_agent"],
+                }) as session:
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                        if resp.status == 200:
+                            content = await resp.read()
+                            if content and len(content) > 100:
+                                with open(filepath, "wb") as f:
+                                    f.write(content)
+                                return filepath
+            except Exception:
+                pass
 
             return ""
         except Exception as e:
