@@ -152,54 +152,153 @@ class XianyuCrawler:
     # ========== 登录 ==========
 
     async def login(self):
-        """打开闲鱼页面，等待用户手动扫码登录"""
+        """打开闲鱼页面，引导用户登录"""
         await self._init_browser()
 
+        # 先尝试打开闲鱼首页
         self.log("正在打开闲鱼首页...", "info")
-        await self.page.goto(
-            self.cfg["xianyu"]["base_url"],
-            wait_until="domcontentloaded",
-            timeout=30000
-        )
-        await asyncio.sleep(2)
+        try:
+            await self.page.goto(
+                self.cfg["xianyu"]["base_url"],
+                wait_until="domcontentloaded",
+                timeout=30000
+            )
+        except Exception:
+            # 如果 goofish.com 打不开，尝试其他域名
+            self.log("主域名加载失败，尝试备用域名...", "warning")
+            await self.page.goto(
+                "https://www.goofish.com",
+                wait_until="domcontentloaded",
+                timeout=30000
+            )
+        await asyncio.sleep(3)
 
-        # 检查是否已登录
+        # 检查是否已登录（通过Cookie）
         is_logged_in = await self._check_login_status()
 
         if is_logged_in:
-            self.log("检测到已登录状态，无需重新登录 ✅", "success")
+            self.log("检测到已登录状态 ✅", "success")
             return True
-        else:
-            self.log("请在浏览器中扫码登录闲鱼账号...", "warning")
-            self.log("登录后请手动关闭弹窗，程序会自动检测", "info")
 
-            # 等待用户登录（最多等 120 秒）
-            for i in range(60):
+        # ===== 未登录，引导用户登录 =====
+        self.log("", "info")
+        self.log("╔══════════════════════════════════════════╗", "warning")
+        self.log("║  ⚠ 未检测到登录状态                        ║", "warning")
+        self.log("║                                          ║", "warning")
+        self.log("║  请在弹出的浏览器中完成以下操作：          ║", "warning")
+        self.log("║  1. 点击页面上的「登录」按钮              ║", "warning")
+        self.log("║  2. 使用手机闲鱼APP扫码登录               ║", "warning")
+        self.log("║  3. 登录成功后程序会自动继续              ║", "warning")
+        self.log("╚══════════════════════════════════════════╝", "warning")
+        self.log("", "info")
+
+        # 尝试自动跳转到登录页面
+        try:
+            login_clicked = False
+            # 尝试点击页面上的登录按钮
+            login_selectors = [
+                'a:has-text("登录")',
+                'button:has-text("登录")',
+                'span:has-text("登录")',
+                '[class*="login"]',
+                '[class*="Login"]',
+            ]
+            for sel in login_selectors:
+                try:
+                    el = self.page.locator(sel).first
+                    if await el.is_visible(timeout=2000):
+                        await el.click()
+                        login_clicked = True
+                        self.log("已自动点击登录按钮", "info")
+                        break
+                except Exception:
+                    continue
+
+            if not login_clicked:
+                # 直接跳转到登录页面
+                self.log("正在跳转到登录页面...", "info")
+                await self.page.goto(
+                    "https://login.taobao.com/member/login.jhtml?style=mini&from=goofish&full_redirect=true",
+                    wait_until="domcontentloaded",
+                    timeout=30000
+                )
+        except Exception:
+            pass
+
+        await asyncio.sleep(2)
+
+        # 等待用户登录（最多等 180 秒 = 3分钟）
+        self.log("⏳ 等待扫码登录中...（最多等待3分钟）", "warning")
+
+        for i in range(90):
+            await asyncio.sleep(2)
+            is_logged_in = await self._check_login_status()
+
+            if is_logged_in:
+                self.log("登录成功 ✅ 正在保存登录状态...", "success")
+                # 立即保存登录状态
+                cookie_file = self.cfg["paths"]["cookie_file"]
+                os.makedirs(os.path.dirname(cookie_file), exist_ok=True)
+                await self.context.storage_state(path=cookie_file)
+                self.log("登录状态已保存，下次无需重新登录", "info")
                 await asyncio.sleep(2)
-                is_logged_in = await self._check_login_status()
-                if is_logged_in:
-                    self.log("登录成功 ✅", "success")
-                    # 立即保存登录状态
-                    cookie_file = self.cfg["paths"]["cookie_file"]
-                    os.makedirs(os.path.dirname(cookie_file), exist_ok=True)
-                    await self.context.storage_state(path=cookie_file)
-                    return True
+                return True
 
-            self.log("登录超时，请重试", "error")
-            return False
+            # 每30秒提醒一次
+            if i > 0 and i % 15 == 0:
+                remaining = 180 - (i * 2)
+                self.log(f"⏳ 仍在等待登录... 剩余 {remaining} 秒", "warning")
+
+        self.log("❌ 登录超时（3分钟），请重新尝试", "error")
+        return False
 
     async def _check_login_status(self):
-        """检查是否已登录"""
+        """检查是否已登录 - 多重检测确保准确性"""
         try:
-            # 检查页面是否有登录按钮或用户信息
             current_url = self.page.url
-            # 如果不在登录页面，大概率已登录
-            if "login" not in current_url.lower():
-                # 进一步检查：查找用户头像等登录态元素
-                user_elements = await self.page.query_selector_all(
-                    '[class*="avatar"], [class*="user"], [class*="login"]'
+
+            # 如果还在登录页面，肯定没登录
+            if "login" in current_url.lower() or "signin" in current_url.lower():
+                return False
+
+            # 检测方式1：查找登录按钮（如果有登录按钮说明没登录）
+            try:
+                login_btns = await self.page.query_selector_all(
+                    'a:has-text("登录"), button:has-text("登录"), [class*="login-btn"], [class*="LoginBtn"]'
                 )
-                return len(user_elements) > 0
+                # 如果能找到可见的登录按钮，说明没登录
+                for btn in login_btns:
+                    if await btn.is_visible():
+                        return False
+            except Exception:
+                pass
+
+            # 检测方式2：查找用户头像/昵称等登录态元素
+            try:
+                user_elements = await self.page.query_selector_all(
+                    '[class*="avatar"], [class*="Avatar"], [class*="user-name"], [class*="userName"], [class*="nick"]'
+                )
+                if len(user_elements) > 0:
+                    # 进一步检查是否有 cookie 中的登录态
+                    cookies = await self.context.cookies()
+                    has_login_cookie = any(
+                        c.get("name") in ["_m_h5_tk", "cookie17", "unb", "sgcookie", "csg"]
+                        for c in cookies
+                    )
+                    if has_login_cookie:
+                        return True
+            except Exception:
+                pass
+
+            # 检测方式3：直接检查关键 Cookie
+            try:
+                cookies = await self.context.cookies()
+                for c in cookies:
+                    if c.get("name") in ["unb", "cookie17", "_m_h5_tk"] and c.get("value"):
+                        return True
+            except Exception:
+                pass
+
             return False
         except Exception:
             return False
