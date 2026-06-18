@@ -434,6 +434,93 @@ class AIAssistant:
 
         raise Exception(f"API请求失败: {last_error}")
 
+    def chat_stream(self, user_message, keyword=""):
+        """流式对话：yield 逐字输出"""
+        if not self.config.get("enabled") or not self.config.get("api_key"):
+            yield "⚠ AI助手未配置。请点击导航栏⚙️齿轮按钮 → AI配置中设置 API Key。"
+            return
+
+        system_prompt = self._build_system_prompt(keyword)
+        messages = [{"role": "system", "content": system_prompt}]
+        for h in self.history[-15:]:
+            messages.append({"role": h["role"], "content": h["content"]})
+        messages.append({"role": "user", "content": user_message})
+
+        url = self.config.get("api_url", "")
+        if not url:
+            yield "❌ API地址未配置"
+            return
+
+        data = json.dumps({
+            "model": self.config.get("model", "agnes-2.0-flash"),
+            "messages": messages,
+            "temperature": 0.8,
+            "max_tokens": 3000,
+            "stream": True,
+        }).encode("utf-8")
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.config['api_key']}",
+        }
+
+        full_reply = ""
+        try:
+            import http.client
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            if parsed.scheme == "https":
+                conn = http.client.HTTPSConnection(parsed.netloc, timeout=120)
+            else:
+                conn = http.client.HTTPConnection(parsed.netloc, timeout=120)
+            conn.request("POST", parsed.path, body=data, headers=headers)
+            resp = conn.getresponse()
+
+            if resp.status != 200:
+                yield f"❌ API错误 {resp.status}: {resp.read().decode()[:200]}"
+                conn.close()
+                return
+
+            buffer = b""
+            while True:
+                chunk = resp.read(1)
+                if not chunk:
+                    break
+                buffer += chunk
+                try:
+                    text = buffer.decode("utf-8")
+                    while "\n" in text:
+                        line, text = text.split("\n", 1)
+                        line = line.strip()
+                        if line.startswith("data: "):
+                            data_str = line[6:]
+                            if data_str == "[DONE]":
+                                buffer = b""
+                                break
+                            try:
+                                obj = json.loads(data_str)
+                                delta = obj.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                if delta:
+                                    full_reply += delta
+                                    yield full_reply
+                            except json.JSONDecodeError:
+                                pass
+                    buffer = text.encode("utf-8") if text else b""
+                except UnicodeDecodeError:
+                    continue
+            conn.close()
+        except Exception as e:
+            if full_reply:
+                yield full_reply
+            else:
+                yield f"❌ 流式调用失败: {str(e)}"
+                return
+
+        # 保存历史
+        self.history.append({"role": "user", "content": user_message, "time": datetime.now().strftime("%H:%M")})
+        self.history.append({"role": "assistant", "content": full_reply, "time": datetime.now().strftime("%H:%M")})
+        self.save_memory()
+
     # ========== MCP 工具调用检测 ==========
 
     def _check_tool_call(self, message, keyword):

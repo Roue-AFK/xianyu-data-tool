@@ -213,6 +213,32 @@ class StatusBadge(QFrame):
         self._dot.setStyleSheet(f"color:{color}; font-size:10px; border:none; background:transparent;")
 
 
+# ========== 流式AI线程 ==========
+
+class StreamWorker(QThread):
+    """流式AI调用线程，逐字返回"""
+    chunk_signal = pyqtSignal(str)    # 每次返回当前累积文本
+    done_signal = pyqtSignal(str)     # 完成时返回完整文本
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, assistant, message, keyword=""):
+        super().__init__()
+        self.assistant = assistant
+        self.message = message
+        self.keyword = keyword
+
+    def run(self):
+        try:
+            for text in self.assistant.chat_stream(self.message, self.keyword):
+                if self.isInterruptionRequested():
+                    self.done_signal.emit(text)
+                    return
+                self.chunk_signal.emit(text)
+            self.done_signal.emit(text if 'text' in dir() else "")
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
+
 # ========== 爬虫线程 ==========
 
 class CrawlerWorker(QThread):
@@ -1282,10 +1308,8 @@ class MainWindow(QMainWindow):
             return
         self._append_message("user", f"帮我做{tag_name}")
         QApplication.processEvents()
-        self._show_typing()
-        reply = self.ai_assistant.chat_with_scenario(tag_name, kw)
-        if reply: self._append_message("ai", reply)
-        self._hide_typing()
+        prompt = AIAssistant.SCENARIOS.get(tag_name, {}).get("prompt", "").format(keyword=kw)
+        self._start_stream(prompt, kw)
 
     def _populate_chat_scenes(self):
         for name, info in AIAssistant.SCENARIOS.items():
@@ -1317,11 +1341,9 @@ class MainWindow(QMainWindow):
         kw = self.nav_keyword.text().strip() or self.chat_input.toPlainText().strip()
         if scene_name == "自由对话": return
         self._append_message("user", f"📌 {scene_name} → {type_name}")
-        QApplication.processEvents(); self._show_typing()
+        QApplication.processEvents()
         prompt = self._build_template_prompt(scene_name, type_name, kw)
-        reply = self.ai_assistant.chat(prompt, kw)
-        if reply: self._append_message("ai", reply)
-        self._hide_typing()
+        self._start_stream(prompt, kw)
 
     def _build_template_prompt(self, scene_name, type_name, keyword):
         base = AIAssistant.SCENARIOS.get(scene_name, {}).get("prompt", "")
@@ -1393,21 +1415,77 @@ class MainWindow(QMainWindow):
                 self._hide_typing(); self.chat_status_badge.set_state("等待确认", C.info)
                 self._pending_action = action
                 self._append_message("ai", f"{action['confirm_msg']}\n\n回复「确认」执行。"); return
-            reply = self.ai_assistant.chat(msg, kw)
-            self._append_message("ai", reply)
-            self._hide_typing(); self.chat_status_badge.set_state("自动执行", C.info)
+            # Agent模式非操作对话 → 走流式
+            self._start_stream(msg, kw, is_agent=True)
             return
 
-        self._show_typing()
+        # 普通模式先检查是否需要澄清
         need_clarify = self.ai_assistant.check_if_need_clarify(msg)
         if need_clarify:
-            QApplication.processEvents()
             self._append_message("ai", need_clarify)
-            self._hide_typing(); self.chat_status_badge.set_state("等待回复", C.info)
+            self.chat_status_badge.set_state("等待回复", C.info)
             return
-        reply = self.ai_assistant.chat(msg, kw)
-        self._append_message("ai", reply)
+
+        self._start_stream(msg, kw)
+
+    def _start_stream(self, msg, kw, is_agent=False):
+        """启动流式AI调用"""
+        self._show_typing()
+        self.chat_status_badge.set_state("思考中...", C.warning)
+        QApplication.processEvents()
+
+        # 创建流式气泡（初始为空）
+        bubble = QFrame()
+        bubble.setMaximumWidth(int(self.width() * 0.82) if self.width() > 200 else 600)
+        bl = QHBoxLayout(bubble)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(8)
+
+        self._stream_label = QLabel("")
+        self._stream_label.setWordWrap(True)
+        self._stream_label.setTextFormat(Qt.TextFormat.MarkdownText)
+        self._stream_label.setStyleSheet(f"""
+            QLabel {{
+                background: {C.card}; color: {C.text};
+                padding: 12px 18px; border-radius: 4px 16px 16px 16px;
+                font-size: 13px; line-height: 1.7;
+                border: 1px solid {C.border};
+            }}
+        """)
+        bl.addWidget(self._stream_label)
+        bl.addStretch()
+        bubble.setStyleSheet("background:transparent;")
+
+        idx = self.chat_msg_layout.count() - 1
+        self.chat_msg_layout.insertWidget(max(0, idx), bubble)
+        self._scroll_down()
+
+        # 启动流式线程
+        self._stream_worker = StreamWorker(self.ai_assistant, msg, kw)
+        self._stream_worker.chunk_signal.connect(self._on_stream_chunk)
+        self._stream_worker.done_signal.connect(lambda text: self._on_stream_done(text, is_agent))
+        self._stream_worker.error_signal.connect(self._on_stream_error)
+        self._stream_worker.start()
+
+    def _on_stream_chunk(self, text):
+        """流式逐字更新"""
+        self._stream_label.setText(text)
+        self._scroll_down()
+
+    def _on_stream_done(self, text, is_agent=False):
         self._hide_typing()
+        if is_agent:
+            self.chat_status_badge.set_state("自动执行", C.info)
+        self._stream_label = None
+
+    def _on_stream_error(self, err):
+        self._hide_typing()
+        self._stream_label.setText(f"❌ {err}")
+        self._stream_label = None
+
+    def _scroll_down(self):
+        QTimer.singleShot(20, lambda: self.chat_scroll.verticalScrollBar().setValue(
+            self.chat_scroll.verticalScrollBar().maximum()))
 
     def _on_clear_chat(self):
         reply = QMessageBox.question(self, "确认清空",

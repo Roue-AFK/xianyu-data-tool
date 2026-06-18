@@ -1,4 +1,4 @@
-# 🐟 闲鱼数据调研工具 - 项目快照 v12.0
+# 🐟 闲鱼数据调研工具 - 项目快照 v13.0
 
 ## 项目路径 /workspace/xianyu-tool/
 GitHub: https://github.com/Roue-AFK/xianyu-data-tool
@@ -6,22 +6,27 @@ GitHub: https://github.com/Roue-AFK/xianyu-data-tool
 ## 技术栈
 Python 3.11 + PyQt6 + Playwright + SQLite + openpyxl + jieba + Agnes AI API
 
-## gui/main_window.py v12.0 ★ CodeBuddy风格UI
-AI助手核心改动:
-- QScrollArea + QWidget消息气泡 (替代QTextEdit HTML)
-- 每条消息是独立QLabel Widget，支持Markdown渲染
-- 用户气泡: 橙色右对齐 (border-radius:16px/4px/16px/16px)
-- AI气泡: 白色左对齐带边框 (border-radius:4px/16px/16px/16px)
-- 输入框: QTextEdit多行输入 (Enter发送, Shift+Enter换行)
-- 自动滚动到底部
-- 清空对话: 逐个删除Widget
-- 顶部简洁标题栏: 标题+自动执行开关+场景选择+状态徽章
+## gui/main_window.py v13.0 ★ 流式逐字输出
+新增:
+- StreamWorker(QThread): 流式AI调用线程，chunk_signal逐字发射
+- _start_stream(): 创建空气泡+启动流式线程
+- _on_stream_chunk(): 实时更新QLabel文本(Markdown)
+- _on_stream_done(): 完成时恢复状态
+- _scroll_down(): 自动滚动到底部
+- 所有对话入口(发送/快捷标签/模板)统一走流式
 
-## 其他文件
-core/config.py / database.py / crawler.py / analyzer.py / exporter.py / researcher.py / assistant.py (同v11.0)
+## core/assistant.py v3.1
+新增:
+- chat_stream(): 流式对话方法
+  用http.client逐字节读取SSE(data: [JSON])
+  每个delta.content立即yield
+  自动保存历史+记忆
+
+## 效果
+AI回复像CodeBuddy一样逐字出现，不是突然弹出整段文字
 
 ## 配色
-bg=#F5F3EE, card=#FFFFFF, border=#E8E3D9, text=#3D3929, primary=#F5A623, purple=#722ED1
+bg=#F5F3EE, card=#FFFFFF, primary=#F5A623
 
 ## 启动
 python main.py
