@@ -1,4 +1,4 @@
-# 🐟 闲鱼数据调研工具 - 项目快照 v14.4
+# DataResearch Hub - 多平台数据调研集合站 v15.0
 
 ## 项目路径 /workspace/xianyu-tool/
 GitHub: https://github.com/Roue-AFK/xianyu-data-tool
@@ -6,27 +6,33 @@ GitHub: https://github.com/Roue-AFK/xianyu-data-tool
 ## 技术栈
 Python 3.11 + PyQt6 + Playwright + SQLite + openpyxl + jieba + Agnes AI API
 
-## gui/main_window.py v14.4 ★ 紧凑工具栏 + 一键更新
-改动:
-- 底部工具栏全面压缩(WorkBuddy紧凑风格):
-  输入框 52→36px, 按钮 26→22px, 深度按钮 22→20px, 发送按钮 32→28px
-  卡片圆角 16→12px, 所有边距/间距缩小
-  工具栏顺序: [Agnes▼] [自动] [深度思考|平衡|快速] [⚡技能▼] [场景▼] [+] ...状态... [↑]
-- 设置面板新增 "🔄 检查更新" 按钮:
-  一键 git fetch + reset --hard origin/master
-  成功/失败/超时均有弹窗提示
+## v15.0 重大更新 ★ 多平台数据调研集合站
 
-保留:
-- StreamWorker(QThread) 流式逐字输出
-- Agent Mode 自动执行模式
-- 思考深度三档联动API参数
-- 模型下拉菜单切换
+### 全新UI架构
+- **左侧可折叠平台导航**：🐟闲鱼 / 🎵抖音 / 📕小红书 三平台切换
+- **子导航菜单**：每个平台有独立的功能子菜单
+- **标签页工作区**：根据平台动态切换Tab内容
+- **顶部快捷操作栏**：关键词输入+采集/追踪按钮
+- **底部状态栏**：平台标识+运行状态+版本号
 
-## core/assistant.py v3.2
-- thinking_depth属性联动temperature/max_tokens
+### 全新配色：Slate Professional 暗色 + 暖橙
+- 背景: #0F172A 午夜板岩
+- 卡片: #1E293B
+- 强调: #F59E0B 暖橙
+- 文字: #F1F5F9 / #94A3B8
 
-## 配色
-bg=#F5F3EE, card=#FFFFFF, primary=#F5A623, purple=#722ED1
+### 三大平台功能
+| 平台 | 功能Tab |
+|------|---------|
+| 🐟 闲鱼 | 数据采集 / AI对话 / 数据分析 / 调研报告 |
+| 🎵 抖音 | 热门话题 / AI调研对话 / 拟稿话术 |
+| 📕 小红书 | 笔记分析 / 关键词追踪 / AI调研对话 |
+
+### 新增模块
+- 抖音话题追踪：AI分析热门话题趋势
+- 抖音拟稿话术：AI生成口播/脚本文案
+- 小红书笔记分析：AI分析爆文模式和内容趋势
+- 小红书关键词追踪：AI分析搜索热度和竞争
 
 ## 启动
 python main.py

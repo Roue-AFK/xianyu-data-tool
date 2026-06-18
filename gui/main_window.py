@@ -1,6 +1,7 @@
 """
-闲鱼数据调研工具 - 主窗口 GUI v7.0
-齿轮按钮设置弹窗、右键删除、AI Agent自主操作
+多平台数据调研集合站 - 主窗口 v15.0
+闲鱼 + 抖音 + 小红书 三平台数据调研工具
+左侧平台导航 + 标签页工作区 + AI深度集成
 """
 
 import os
@@ -31,39 +32,79 @@ from core.researcher import MarketResearcher
 from core.assistant import AIAssistant
 
 
-# ========== 配色 ==========
+# ========== 配色系统 v15.0 (Slate Professional + 暖橙) ==========
 
 class C:
-    bg              = "#F5F3EE"
-    card            = "#FFFFFF"
-    card_hover      = "#FFFBEB"
-    border          = "#E8E3D9"
-    border_hover    = "#F5C842"
-    text            = "#3D3929"
-    text_dim        = "#8B8576"
-    text_muted      = "#B8B2A6"
-    primary         = "#F5A623"
-    primary_hover   = "#F7B84E"
-    primary_bg      = "#FFF8E7"
-    success         = "#52C41A"
-    warning         = "#FAAD14"
-    danger          = "#FF4D4F"
-    info            = "#1890FF"
-    info_bg         = "#E6F7FF"
-    purple          = "#722ED1"
-    cyan            = "#13C2C2"
-    white           = "#FFFFFF"
-    input_bg        = "#FFFFFF"
-    input_border    = "#E0DBD0"
-    input_focus     = "#F5A623"
-    table_header    = "#FAF8F5"
-    table_row_alt   = "#FDFCF9"
-    log_bg          = "#2D2A24"
-    scrollbar       = "#D5D0C7"
-    scrollbar_hover = "#B8B2A6"
-    navbar_bg       = "#FFFFFF"
-    stat_value      = "#3D3929"
-    panel_bg        = "#FAFAFA"
+    """全局配色 - 默认暗色主题 (Slate Professional)"""
+
+    # 核心背景
+    bg              = "#0F172A"  # 午夜板岩 - 主背景
+    sidebar         = "#0C1422"  # 侧边栏更深
+    card            = "#1E293B"  # 卡片/面板
+    card_hover      = "#273449"  # 卡片悬停
+    border          = "#334155"  # 边框
+    border_hover    = "#475569"  # 边框悬停
+
+    # 文字
+    text            = "#F1F5F9"  # 主文字 - 亮白
+    text_dim        = "#94A3B8"  # 次要文字 - 灰蓝
+    text_muted      = "#64748B"  # 禁用文字 - 暗灰
+
+    # 强调色（暖橙系 - 闲鱼品牌关联）
+    primary         = "#F59E0B"  # 暖橙
+    primary_hover   = "#FBBF24"  # 暖橙悬停
+    primary_bg      = "#F59E0B18" # 暖橙背景
+
+    # 平台色
+    xianyu_color    = "#F59E0B"  # 闲鱼橙
+    douyin_color    = "#111111"  # 抖音黑(用亮色替代)
+    douyin_accent   = "#FE2C55"  # 抖音红
+    xiaohongshu     = "#FE2C55"  # 小红书红
+
+    # 功能色
+    success         = "#10B981"  # 翡翠绿
+    warning         = "#F59E0B"  # 琥珀色
+    danger          = "#EF4444"  # 红色
+    info            = "#38BDF8"  # 天空蓝
+    info_bg         = "#38BDF818"
+
+    # 特殊色
+    purple          = "#A78BFA"  # 紫色
+    cyan            = "#22D3EE"  # 青色
+    white           = "#F1F5F9"
+
+    # 输入框
+    input_bg        = "#1E293B"
+    input_border    = "#334155"
+    input_focus     = "#F59E0B"
+
+    # 表格
+    table_header    = "#1E293B"
+    table_row_alt   = "#1A2538"
+
+    # 日志
+    log_bg          = "#0C1422"
+
+    # 滚动条
+    scrollbar       = "#334155"
+    scrollbar_hover = "#475569"
+
+    # 导航
+    navbar_bg       = "#1E293B"
+    stat_value      = "#F1F5F9"
+    panel_bg        = "#1E293B"
+
+    # 侧边栏导航专用
+    nav_item        = "#94A3B8"
+    nav_item_active = "#F59E0B"
+    nav_item_bg     = "transparent"
+    nav_item_bg_active = "#F59E0B15"
+    nav_section     = "#64748B"
+
+    # 消息气泡
+    bubble_user     = "#F59E0B20"
+    bubble_ai       = "#1E293B"
+    bubble_border   = "#334155"
 
 
 # ========== 禁用滚轮的控件 ==========
@@ -619,7 +660,7 @@ class SettingsDialog(QDialog):
         self.accept()
 
 
-# ========== 主窗口 ==========
+# ========== 主窗口 v15.0 ==========
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -631,141 +672,377 @@ class MainWindow(QMainWindow):
         self.researcher = MarketResearcher()
         self.worker = None
         self.current_task_id = None
+        self.current_platform = "xianyu"  # 当前激活的平台
         self._init_ui()
         self._load_task_history()
         self._refresh_dashboard()
 
     def _init_ui(self):
-        self.setWindowTitle("🐟 闲鱼数据调研工具 v7.0")
-        self.setMinimumSize(1200, 800)
-        self.resize(1350, 900)
+        self.setWindowTitle("DataResearch Hub - 多平台数据调研集合站")
+        self.setMinimumSize(1280, 820)
+        self.resize(1440, 920)
 
+        # 全局样式
         self.setStyleSheet(f"""
             QMainWindow {{ background:{C.bg}; }}
             QTabWidget::pane {{ border:none; background:{C.bg}; }}
             QTabBar::tab {{
-                background:{C.card}; color:{C.text_dim}; padding:10px 22px;
-                font-size:13px; border:1px solid {C.border}; border-bottom:none;
-                border-top-left-radius:8px; border-top-right-radius:8px; margin-right:2px;
+                background:{C.card}; color:{C.text_dim}; padding:8px 18px;
+                font-size:12px; border:1px solid {C.border}; border-bottom:none;
+                border-top-left-radius:6px; border-top-right-radius:6px; margin-right:2px;
             }}
             QTabBar::tab:selected {{ background:{C.bg}; color:{C.primary}; font-weight:bold; border-bottom:2px solid {C.primary}; }}
-            QTabBar::tab:hover:!selected {{ background:{C.primary_bg}; color:{C.text}; }}
+            QTabBar::tab:hover:!selected {{ background:{C.card_hover}; color:{C.text}; }}
             QLineEdit, QSpinBox, QComboBox, QDoubleSpinBox {{
-                border:2px solid {C.input_border}; border-radius:8px;
-                padding:10px 14px; font-size:13px; background:{C.input_bg}; color:{C.text};
+                border:1px solid {C.input_border}; border-radius:6px;
+                padding:8px 12px; font-size:13px; background:{C.input_bg}; color:{C.text};
             }}
-            QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border-color:{C.input_focus}; background:{C.primary_bg}; }}
+            QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border-color:{C.input_focus}; }}
             QLineEdit::placeholder {{ color:{C.text_muted}; }}
-            QComboBox::drop-down {{ border:none; padding-right:10px; }}
+            QComboBox::drop-down {{ border:none; padding-right:8px; }}
             QComboBox QAbstractItemView {{
                 background:{C.card}; color:{C.text}; border:1px solid {C.border};
                 selection-background-color:{C.primary_bg};
             }}
-            QPushButton {{ border-radius:8px; padding:8px 20px; font-size:13px; font-weight:500; color:{C.text}; background:{C.card}; border:1px solid {C.border}; }}
-            QPushButton:hover {{ background:{C.primary_bg}; border-color:{C.primary}; }}
+            QPushButton {{ border-radius:6px; padding:6px 16px; font-size:12px; color:{C.text}; background:{C.card}; border:1px solid {C.border}; }}
+            QPushButton:hover {{ background:{C.card_hover}; border-color:{C.primary}; }}
             QTableWidget {{ gridline-color:{C.border}; font-size:12px; border:1px solid {C.border}; border-radius:8px; background:{C.card}; color:{C.text}; alternate-background-color:{C.table_row_alt}; }}
-            QTableWidget::item {{ padding:8px; border-bottom:1px solid {C.border}; }}
+            QTableWidget::item {{ padding:6px; border-bottom:1px solid {C.border}; }}
             QTableWidget::item:selected {{ background:{C.primary_bg}; color:{C.text}; }}
-            QHeaderView::section {{ background:{C.table_header}; border:none; border-bottom:2px solid {C.border}; padding:10px 8px; font-weight:bold; color:{C.text_dim}; }}
-            QProgressBar {{ border:none; border-radius:10px; background:{C.border}; height:6px; }}
-            QProgressBar::chunk {{ border-radius:10px; background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 {C.primary},stop:1 {C.primary_hover}); }}
+            QHeaderView::section {{ background:{C.table_header}; border:none; border-bottom:2px solid {C.border}; padding:8px 6px; font-weight:bold; color:{C.text_dim}; }}
+            QProgressBar {{ border:none; border-radius:8px; background:{C.border}; height:4px; }}
+            QProgressBar::chunk {{ border-radius:8px; background:{C.primary}; }}
             QScrollArea {{ border:none; background:transparent; }}
-            QScrollBar:vertical {{ background:transparent; width:8px; }}
-            QScrollBar::handle:vertical {{ background:{C.scrollbar}; border-radius:4px; min-height:30px; }}
+            QScrollBar:vertical {{ background:transparent; width:6px; }}
+            QScrollBar::handle:vertical {{ background:{C.scrollbar}; border-radius:3px; min-height:30px; }}
             QScrollBar::handle:vertical:hover {{ background:{C.scrollbar_hover}; }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
-            QGroupBox {{ font-weight:bold; color:{C.text}; border:1px solid {C.border}; border-radius:10px; margin-top:12px; padding:20px 14px 14px 14px; background:{C.card}; }}
-            QGroupBox::title {{ subcontrol-origin:margin; left:14px; padding:0 6px; color:{C.primary}; }}
-            QCheckBox {{ color:{C.text}; spacing:8px; }}
-            QCheckBox::indicator {{ width:18px; height:18px; border:2px solid {C.border}; border-radius:4px; background:{C.card}; }}
+            QGroupBox {{ font-weight:bold; color:{C.text}; border:1px solid {C.border}; border-radius:8px; margin-top:12px; padding:16px 12px 12px 12px; background:{C.card}; }}
+            QGroupBox::title {{ subcontrol-origin:margin; left:12px; padding:0 4px; color:{C.primary}; }}
+            QCheckBox {{ color:{C.text}; spacing:6px; }}
+            QCheckBox::indicator {{ width:16px; height:16px; border:2px solid {C.border}; border-radius:3px; background:{C.card}; }}
             QCheckBox::indicator:checked {{ background:{C.primary}; border-color:{C.primary}; }}
             QLabel {{ color:{C.text}; }}
-            QStatusBar {{ background:{C.card}; border-top:1px solid {C.border}; padding:4px 16px; font-size:11px; color:{C.text_dim}; }}
+            QStatusBar {{ background:{C.sidebar}; border-top:1px solid {C.border}; padding:2px 12px; font-size:11px; color:{C.text_dim}; }}
             QListWidget {{ background:transparent; border:none; }}
-            QListWidget::item {{ padding:10px 12px; border-radius:8px; margin:2px 0; color:{C.text}; }}
+            QListWidget::item {{ padding:8px 10px; border-radius:6px; margin:1px 0; color:{C.text}; }}
             QListWidget::item:hover {{ background:{C.primary_bg}; }}
             QListWidget::item:selected {{ background:{C.primary_bg}; color:{C.primary}; font-weight:bold; }}
             QMenu {{ background:{C.card}; border:1px solid {C.border}; border-radius:8px; padding:4px; }}
-            QMenu::item {{ padding:8px 28px; border-radius:4px; color:{C.text}; }}
+            QMenu::item {{ padding:8px 24px; border-radius:4px; color:{C.text}; }}
             QMenu::item:selected {{ background:{C.primary_bg}; color:{C.primary}; }}
         """)
 
         central = QWidget()
         self.setCentralWidget(central)
-        main_layout = QVBoxLayout(central)
+        main_layout = QHBoxLayout(central)
         main_layout.setSpacing(0)
         main_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._navbar(main_layout)
+        # ═══════ 左侧平台导航 ═══════
+        self._build_sidebar(main_layout)
 
-        # 标签页区域（不再有左下设置面板）
+        # ═══════ 右侧主内容区 ═══════
+        right_panel = QWidget()
+        right_panel.setStyleSheet(f"background:{C.bg};")
+        rl = QVBoxLayout(right_panel)
+        rl.setSpacing(0)
+        rl.setContentsMargins(0, 0, 0, 0)
+
+        # 顶部快捷操作栏
+        self._build_topbar(rl)
+
+        # 标签页工作区
         self.tab_widget = QTabWidget()
         self.tab_widget.setDocumentMode(True)
-        self.tab_widget.addTab(self._dashboard(), "🏠 仪表盘")
-        self.tab_widget.addTab(self._chat_tab(), "💬 AI助手")
-        self.tab_widget.addTab(self._research_tab(), "🔍 AI调研")
-        self.tab_widget.addTab(self._data_tab(), "📊 数据预览")
-        self.tab_widget.addTab(self._analysis_tab(), "📈 文案分析")
-        self.tab_widget.addTab(self._log_tab(), "📋 运行日志")
-        main_layout.addWidget(self.tab_widget)
+        self._build_platform_tabs()
+        rl.addWidget(self.tab_widget)
 
-        self.status_bar = self.statusBar()
-        self.status_bar.showMessage("🟢 就绪")
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(4)
-        self.progress_bar.setVisible(False)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setMaximumWidth(300)
-        self.status_bar.addPermanentWidget(self.progress_bar)
+        # 底部状态栏
+        self._build_statusbar(rl)
 
-    # ===== 导航栏 =====
+        main_layout.addWidget(right_panel)
 
-    def _navbar(self, parent):
+    # ═══════ 左侧侧边栏 ═══════
+    def _build_sidebar(self, parent):
+        sidebar = QFrame()
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(200)
+        sidebar.setStyleSheet(f"""
+            QFrame#sidebar {{
+                background:{C.sidebar};
+                border-right:1px solid {C.border};
+            }}
+        """)
+        sl = QVBoxLayout(sidebar)
+        sl.setSpacing(0)
+        sl.setContentsMargins(0, 0, 0, 0)
+
+        # Logo区域
+        logo_area = QFrame()
+        logo_area.setFixedHeight(56)
+        logo_area.setStyleSheet(f"background:transparent; border-bottom:1px solid {C.border};")
+        ll = QHBoxLayout(logo_area)
+        ll.setContentsMargins(16, 0, 12, 0)
+        logo = QLabel("🔬 DataResearch")
+        logo.setStyleSheet(f"font-size:14px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
+        ll.addWidget(logo)
+        ll.addStretch()
+        ver = QLabel("v15")
+        ver.setStyleSheet(f"font-size:9px; color:{C.primary}; background:{C.primary_bg}; border-radius:3px; padding:1px 5px;")
+        ll.addWidget(ver)
+        sl.addWidget(logo_area)
+
+        # 平台导航列表
+        self.platform_list = QListWidget()
+        self.platform_list.setObjectName("platformNav")
+        self.platform_list.setStyleSheet(f"""
+            QListWidget#platformNav {{
+                background:transparent; border:none; padding:8px 8px;
+            }}
+            QListWidget#platformNav::item {{
+                padding:10px 12px; border-radius:8px; margin:2px 0;
+                color:{C.nav_item}; font-size:13px; font-weight:500;
+            }}
+            QListWidget#platformNav::item:hover {{
+                background:{C.card_hover}; color:{C.text};
+            }}
+            QListWidget#platformNav::item:selected {{
+                background:{C.nav_item_bg_active}; color:{C.nav_item_active};
+                font-weight:bold; border-left:3px solid {C.nav_item_active};
+            }}
+        """)
+
+        platforms = [
+            ("🐟 闲鱼", "xianyu"),
+            ("🎵 抖音", "douyin"),
+            ("📕 小红书", "xiaohongshu"),
+        ]
+        self._platform_items = {}
+        for icon_text, key in platforms:
+            item = QListWidgetItem(icon_text)
+            item.setData(Qt.ItemDataRole.UserRole, key)
+            self.platform_list.addItem(item)
+            self._platform_items[key] = item
+
+        self.platform_list.setCurrentRow(0)
+        self.platform_list.currentRowChanged.connect(self._on_platform_switch)
+        sl.addWidget(self.platform_list)
+
+        # 平台子菜单
+        self.platform_sub_list = QListWidget()
+        self.platform_sub_list.setObjectName("platformSub")
+        self.platform_sub_list.setStyleSheet(f"""
+            QListWidget#platformSub {{
+                background:transparent; border:none; padding:4px 8px 4px 20px;
+            }}
+            QListWidget#platformSub::item {{
+                padding:7px 10px; border-radius:6px; margin:1px 0;
+                color:{C.text_dim}; font-size:11px;
+            }}
+            QListWidget#platformSub::item:hover {{
+                background:{C.card_hover}; color:{C.text};
+            }}
+            QListWidget#platformSub::item:selected {{
+                background:{C.nav_item_bg_active}; color:{C.nav_item_active};
+                font-weight:bold;
+            }}
+        """)
+        self.platform_sub_list.currentRowChanged.connect(self._on_sub_nav)
+        sl.addWidget(self.platform_sub_list)
+
+        sl.addStretch()
+
+        # 底部设置按钮
+        settings_btn = QPushButton("⚙️  设置")
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        settings_btn.setStyleSheet(f"""
+            QPushButton {{
+                background:transparent; color:{C.text_dim}; border:none;
+                border-top:1px solid {C.border}; border-radius:0;
+                padding:12px; font-size:12px; text-align:left;
+            }}
+            QPushButton:hover {{ background:{C.card_hover}; color:{C.text}; }}
+        """)
+        settings_btn.clicked.connect(self._on_open_settings)
+        sl.addWidget(settings_btn)
+
+        parent.addWidget(sidebar)
+
+        # 默认加载闲鱼子菜单
+        self._update_sub_nav("xianyu")
+
+    def _update_sub_nav(self, platform_key):
+        """更新子导航菜单"""
+        self.platform_sub_list.clear()
+        self._sub_items = []
+
+        sub_menus = {
+            "xianyu": [
+                ("📊 数据采集", "collect"),
+                ("💬 AI对话", "chat"),
+                ("📈 数据分析", "analysis"),
+                ("📋 调研报告", "research"),
+            ],
+            "douyin": [
+                ("🔥 热门话题", "topics"),
+                ("💬 AI调研", "chat"),
+                ("✍️ 拟稿话术", "draft"),
+            ],
+            "xiaohongshu": [
+                ("📝 笔记分析", "notes"),
+                ("🔑 关键词追踪", "keywords"),
+                ("💬 AI调研", "chat"),
+            ],
+        }
+
+        for label, key in sub_menus.get(platform_key, []):
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, key)
+            self.platform_sub_list.addItem(item)
+            self._sub_items.append(item)
+
+        if self._sub_items:
+            self.platform_sub_list.setCurrentRow(0)
+
+    def _on_platform_switch(self, row):
+        """切换平台"""
+        item = self.platform_list.item(row)
+        if not item: return
+        platform_key = item.data(Qt.ItemDataRole.UserRole)
+        self.current_platform = platform_key
+        self._update_sub_nav(platform_key)
+        self._update_platform_tabs()
+
+        # 更新顶部标题
+        titles = {"xianyu": "🐟 闲鱼", "douyin": "🎵 抖音", "xiaohongshu": "📕 小红书"}
+        self.topbar_title.setText(titles.get(platform_key, ""))
+
+        # 更新开始按钮
+        btn_texts = {"xianyu": "🚀 开始采集", "douyin": "🔥 追踪话题", "xiaohongshu": "🔍 分析笔记"}
+        self.nav_start_btn.setText(btn_texts.get(platform_key, "🚀 开始"))
+
+        # 更新placeholder
+        placeholders = {"xianyu": "输入商品关键词...", "douyin": "输入话题关键词...", "xiaohongshu": "输入搜索关键词..."}
+        self.nav_keyword.setPlaceholderText(placeholders.get(platform_key, "输入关键词..."))
+
+        # 更新状态栏
+        self.status_platform.setText(titles.get(platform_key, ""))
+
+    def _on_sub_nav(self, row):
+        """子导航切换"""
+        if row < 0 or not hasattr(self, '_sub_items') or row >= len(self._sub_items):
+            return
+        item = self._sub_items[row]
+        key = item.data(Qt.ItemDataRole.UserRole)
+        # 映射到tab索引
+        tab_map = {
+            "collect": 0, "chat": 1, "analysis": 2, "research": 3,
+            "topics": 0, "draft": 2,
+            "notes": 0, "keywords": 1,
+        }
+        idx = tab_map.get(key, 0)
+        if idx < self.tab_widget.count():
+            self.tab_widget.setCurrentIndex(idx)
+
+    # ═══════ 顶部快捷栏 ═══════
+    def _build_topbar(self, parent):
         bar = QFrame()
-        bar.setFixedHeight(60)
-        bar.setStyleSheet(f"background:{C.navbar_bg}; border-bottom:1px solid {C.border};")
-        nl = QHBoxLayout(bar)
-        nl.setContentsMargins(20, 0, 12, 0)
+        bar.setFixedHeight(52)
+        bar.setStyleSheet(f"background:{C.card}; border-bottom:1px solid {C.border};")
+        tl = QHBoxLayout(bar)
+        tl.setContentsMargins(16, 0, 12, 0)
+        tl.setSpacing(8)
 
-        logo = QLabel("🐟 闲鱼数据调研工具")
-        logo.setStyleSheet(f"font-size:18px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
-        nl.addWidget(logo)
-        ver = QLabel("v7.0")
-        ver.setStyleSheet(f"font-size:10px; color:{C.primary}; background:{C.primary_bg}; border-radius:4px; padding:2px 8px; margin-left:8px;")
-        nl.addWidget(ver)
-        nl.addStretch()
+        self.topbar_title = QLabel("🐟 闲鱼")
+        self.topbar_title.setStyleSheet(f"font-size:15px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
+        tl.addWidget(self.topbar_title)
+
+        tl.addStretch()
 
         self.nav_keyword = QLineEdit()
-        self.nav_keyword.setPlaceholderText("输入商品关键词...")
-        self.nav_keyword.setFixedWidth(240)
-        self.nav_keyword.setFixedHeight(36)
+        self.nav_keyword.setPlaceholderText("输入关键词...")
+        self.nav_keyword.setFixedWidth(200)
+        self.nav_keyword.setFixedHeight(32)
         self.nav_keyword.returnPressed.connect(self._on_start)
-        nl.addWidget(self.nav_keyword)
+        tl.addWidget(self.nav_keyword)
 
-        count_label = QLabel("数量")
-        count_label.setStyleSheet(f"color:{C.text_dim}; font-size:11px; border:none; background:transparent; margin-right:2px;")
-        nl.addWidget(count_label)
         self.nav_count = QLineEdit("30")
         self.nav_count.setPlaceholderText("条数")
-        self.nav_count.setFixedWidth(52)
-        self.nav_count.setFixedHeight(36)
+        self.nav_count.setFixedWidth(48)
+        self.nav_count.setFixedHeight(32)
         self.nav_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        nl.addWidget(self.nav_count)
-
-        research_btn = QPushButton("🔍 AI调研")
-        research_btn.setFixedHeight(36)
-        research_btn.clicked.connect(self._on_research)
-        nl.addWidget(research_btn)
+        tl.addWidget(self.nav_count)
 
         self.nav_start_btn = QPushButton("🚀 开始采集")
-        self.nav_start_btn.setFixedHeight(36)
+        self.nav_start_btn.setFixedHeight(32)
         self.nav_start_btn.setStyleSheet(f"""
-            QPushButton {{ background:{C.primary}; color:white; font-weight:bold; border:none; padding:8px 22px; }}
+            QPushButton {{ background:{C.primary}; color:{C.sidebar}; font-weight:bold; border:none; padding:6px 16px; font-size:12px; }}
             QPushButton:hover {{ background:{C.primary_hover}; }}
             QPushButton:disabled {{ background:{C.border}; color:{C.text_muted}; }}
         """)
         self.nav_start_btn.clicked.connect(self._on_start)
-        nl.addWidget(self.nav_start_btn)
+        tl.addWidget(self.nav_start_btn)
+
+        parent.addWidget(bar)
+
+    # ═══════ 底部状态栏 ═══════
+    def _build_statusbar(self, parent):
+        bar = QFrame()
+        bar.setFixedHeight(28)
+        bar.setStyleSheet(f"background:{C.sidebar}; border-top:1px solid {C.border};")
+        sl = QHBoxLayout(bar)
+        sl.setContentsMargins(12, 0, 12, 0)
+        sl.setSpacing(16)
+
+        self.status_platform = QLabel("🐟 闲鱼")
+        self.status_platform.setStyleSheet(f"color:{C.primary}; font-size:11px; border:none; background:transparent; font-weight:bold;")
+        sl.addWidget(self.status_platform)
+
+        self.status_info = QLabel("🟢 就绪")
+        self.status_info.setStyleSheet(f"color:{C.text_dim}; font-size:11px; border:none; background:transparent;")
+        sl.addWidget(self.status_info)
+
+        sl.addStretch()
+
+        self.status_version = QLabel("v15.0")
+        self.status_version.setStyleSheet(f"color:{C.text_muted}; font-size:10px; border:none; background:transparent;")
+        sl.addWidget(self.status_version)
+
+        parent.addWidget(bar)
+
+    # ═══════ 平台标签页 ═══════
+    def _build_platform_tabs(self):
+        """构建平台相关的标签页（初始为闲鱼）"""
+        self.tab_widget.clear()
+        self._xianyu_collect_tab = self._data_tab()
+        self._xianyu_chat_tab = self._chat_tab()
+        self._xianyu_analysis_tab = self._analysis_tab()
+        self._xianyu_research_tab = self._research_tab()
+
+        self.tab_widget.addTab(self._xianyu_collect_tab, "📊 数据采集")
+        self.tab_widget.addTab(self._xianyu_chat_tab, "💬 AI对话")
+        self.tab_widget.addTab(self._xianyu_analysis_tab, "📈 数据分析")
+        self.tab_widget.addTab(self._xianyu_research_tab, "📋 调研报告")
+
+    def _update_platform_tabs(self):
+        """根据当前平台更新标签页"""
+        self.tab_widget.clear()
+        platform = self.current_platform
+
+        if platform == "xianyu":
+            self.tab_widget.addTab(self._xianyu_collect_tab, "📊 数据采集")
+            self.tab_widget.addTab(self._xianyu_chat_tab, "💬 AI对话")
+            self.tab_widget.addTab(self._xianyu_analysis_tab, "📈 数据分析")
+            self.tab_widget.addTab(self._xianyu_research_tab, "📋 调研报告")
+        elif platform == "douyin":
+            self.tab_widget.addTab(self._douyin_topics_tab(), "🔥 热门话题")
+            self.tab_widget.addTab(self._xianyu_chat_tab, "💬 AI调研对话")
+            self.tab_widget.addTab(self._douyin_draft_tab(), "✍️ 拟稿话术")
+        elif platform == "xiaohongshu":
+            self.tab_widget.addTab(self._xhs_notes_tab(), "📝 笔记分析")
+            self.tab_widget.addTab(self._xhs_keywords_tab(), "🔑 关键词追踪")
+            self.tab_widget.addTab(self._xianyu_chat_tab, "💬 AI调研对话")
 
         # 齿轮设置按钮 - 放在导航栏最右侧
         gear_btn = QPushButton("⚙️")
@@ -969,7 +1246,7 @@ class MainWindow(QMainWindow):
                 self._log(f"🗑 已删除记录: {item_data.get('title','')[:30]}", "warning")
         elif action == copy_action:
             QApplication.clipboard().setText(item_data.get("title", ""))
-            self.status_bar.showMessage("📋 标题已复制到剪贴板")
+            self.status_info.setText("📋 标题已复制到剪贴板")
         elif action == open_action:
             url = item_data.get("item_url", "")
             if url:
@@ -1035,7 +1312,7 @@ class MainWindow(QMainWindow):
                                    it.get("seller_name",""), str(it.get("views",0)),
                                    str(it.get("wants",0)), str(it.get("collected_at","")[:16])]):
                 self.data_table.setItem(i, j, QTableWidgetItem(v))
-        self.status_bar.showMessage(f"📊 共 {len(items)} 条数据")
+        self.status_info.setText(f"📊 共 {len(items)} 条数据")
 
     def _on_export_excel(self):
         try:
@@ -1790,6 +2067,282 @@ class MainWindow(QMainWindow):
             self._log(f"Agent执行失败: {traceback.format_exc()}", "error")
             return f"❌ **执行失败**: {str(e)}"
 
+    # ===== 抖音话题追踪 =====
+
+    def _douyin_topics_tab(self):
+        w = QWidget()
+        w.setStyleSheet(f"background:{C.bg};")
+        lay = QVBoxLayout(w)
+        lay.setSpacing(12)
+        lay.setContentsMargins(20, 16, 20, 16)
+
+        # 标题区
+        header = QLabel("🔥 抖音热门话题追踪")
+        header.setStyleSheet(f"font-size:18px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
+        lay.addWidget(header)
+
+        desc = QLabel("输入话题关键词，AI 将为你分析抖音上的热门内容趋势，并生成调研总结和话术建议。")
+        desc.setWordWrap(True)
+        desc.setStyleSheet(f"color:{C.text_dim}; font-size:12px; border:none; background:transparent;")
+        lay.addWidget(desc)
+
+        # 输入区
+        input_frame = QFrame()
+        input_frame.setStyleSheet(f"background:{C.card}; border:1px solid {C.border}; border-radius:10px;")
+        il = QHBoxLayout(input_frame)
+        il.setContentsMargins(16, 12, 16, 12)
+        il.setSpacing(10)
+
+        self.douyin_topic_input = QLineEdit()
+        self.douyin_topic_input.setPlaceholderText("输入抖音话题关键词，如：美妆、穿搭、数码...")
+        self.douyin_topic_input.setFixedHeight(40)
+        il.addWidget(self.douyin_topic_input)
+
+        self.douyin_search_btn = QPushButton("🔍 AI调研")
+        self.douyin_search_btn.setFixedHeight(40)
+        self.douyin_search_btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.primary}; color:{C.sidebar}; font-weight:bold; border:none; padding:8px 20px; font-size:13px; }}
+            QPushButton:hover {{ background:{C.primary_hover}; }}
+        """)
+        self.douyin_search_btn.clicked.connect(self._on_douyin_research)
+        il.addWidget(self.douyin_search_btn)
+        lay.addWidget(input_frame)
+
+        # 结果展示区
+        self.douyin_result = QTextEdit()
+        self.douyin_result.setReadOnly(True)
+        self.douyin_result.setStyleSheet(f"""
+            QTextEdit {{
+                background:{C.card}; color:{C.text}; border:1px solid {C.border};
+                border-radius:10px; padding:16px; font-size:13px;
+            }}
+        """)
+        self.douyin_result.setMarkdown(
+            "### 🎵 抖音话题追踪\n\n"
+            "输入话题关键词后，AI 将分析：\n\n"
+            "- **话题热度趋势** — 当前热门程度和增长趋势\n"
+            "- **热门内容模式** — 爆款视频的共性特征\n"
+            "- **受众画像** — 核心用户群体分析\n"
+            "- **话术建议** — 可用于创作的文案灵感\n\n"
+            "> 💡 提示：输入具体话题词可获得更精准的分析"
+        )
+        lay.addWidget(self.douyin_result)
+
+        return w
+
+    def _on_douyin_research(self):
+        keyword = self.douyin_topic_input.text().strip()
+        if not keyword:
+            QMessageBox.warning(self, "提示", "请输入话题关键词")
+            return
+        self.status_info.setText(f"🔍 正在调研抖音话题: {keyword}...")
+        self._append_message("user", f"调研抖音话题: {keyword}")
+        prompt = f"请对抖音平台上的「{keyword}」话题进行深入调研分析，包括：1.当前热门趋势 2.爆款内容模式 3.受众画像 4.可借鉴的创作话术。请用Markdown格式输出。"
+        self._start_stream(prompt, keyword)
+
+    # ===== 抖音拟稿话术 =====
+
+    def _douyin_draft_tab(self):
+        w = QWidget()
+        w.setStyleSheet(f"background:{C.bg};")
+        lay = QVBoxLayout(w)
+        lay.setSpacing(12)
+        lay.setContentsMargins(20, 16, 20, 16)
+
+        header = QLabel("✍️ 抖音拟稿话术")
+        header.setStyleSheet(f"font-size:18px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
+        lay.addWidget(header)
+
+        desc = QLabel("根据话题调研结果，AI 帮你生成抖音视频文案、标题和口播话术。")
+        desc.setWordWrap(True)
+        desc.setStyleSheet(f"color:{C.text_dim}; font-size:12px; border:none; background:transparent;")
+        lay.addWidget(desc)
+
+        # 输入区
+        input_frame = QFrame()
+        input_frame.setStyleSheet(f"background:{C.card}; border:1px solid {C.border}; border-radius:10px;")
+        il = QVBoxLayout(input_frame)
+        il.setContentsMargins(16, 12, 16, 12)
+        il.setSpacing(8)
+
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("话题:"))
+        self.draft_topic = QLineEdit()
+        self.draft_topic.setPlaceholderText("如：美妆教程")
+        row1.addWidget(self.draft_topic)
+
+        style_combo = NoWheelComboBox()
+        style_combo.addItems(["口播脚本", "剧情脚本", "产品测评", "知识科普", "Vlog文案"])
+        row1.addWidget(QLabel("风格:"))
+        row1.addWidget(style_combo)
+        self.draft_style = style_combo
+        il.addLayout(row1)
+
+        generate_btn = QPushButton("✍️ 生成话术")
+        generate_btn.setFixedHeight(36)
+        generate_btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.primary}; color:{C.sidebar}; font-weight:bold; border:none; padding:8px 20px; }}
+            QPushButton:hover {{ background:{C.primary_hover}; }}
+        """)
+        generate_btn.clicked.connect(self._on_generate_draft)
+        il.addWidget(generate_btn)
+        lay.addWidget(input_frame)
+
+        self.draft_result = QTextEdit()
+        self.draft_result.setReadOnly(True)
+        self.draft_result.setStyleSheet(f"""
+            QTextEdit {{ background:{C.card}; color:{C.text}; border:1px solid {C.border}; border-radius:10px; padding:16px; font-size:13px; }}
+        """)
+        self.draft_result.setMarkdown("### ✍️ AI 话术生成\n\n选择话题和风格后，AI 将为你生成抖音创作话术。")
+        lay.addWidget(self.draft_result)
+
+        return w
+
+    def _on_generate_draft(self):
+        topic = self.draft_topic.text().strip()
+        style = self.draft_style.currentText()
+        if not topic:
+            QMessageBox.warning(self, "提示", "请输入话题")
+            return
+        self.status_info.setText("✍️ 正在生成话术...")
+        prompt = f"请为抖音平台生成关于「{topic}」的{style}文案。要求：1.吸引人的标题 2.完整口播/脚本文案 3.3-5个话题标签 4.发布建议。用Markdown格式。"
+        self._append_message("user", f"生成话术: {topic} ({style})")
+        self._start_stream(prompt, topic)
+
+    # ===== 小红书笔记分析 =====
+
+    def _xhs_notes_tab(self):
+        w = QWidget()
+        w.setStyleSheet(f"background:{C.bg};")
+        lay = QVBoxLayout(w)
+        lay.setSpacing(12)
+        lay.setContentsMargins(20, 16, 20, 16)
+
+        header = QLabel("📝 小红书笔记分析")
+        header.setStyleSheet(f"font-size:18px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
+        lay.addWidget(header)
+
+        desc = QLabel("输入搜索关键词，AI 分析小红书上的爆款笔记模式、标题套路和内容趋势。")
+        desc.setWordWrap(True)
+        desc.setStyleSheet(f"color:{C.text_dim}; font-size:12px; border:none; background:transparent;")
+        lay.addWidget(desc)
+
+        input_frame = QFrame()
+        input_frame.setStyleSheet(f"background:{C.card}; border:1px solid {C.border}; border-radius:10px;")
+        il = QHBoxLayout(input_frame)
+        il.setContentsMargins(16, 12, 16, 12)
+        il.setSpacing(10)
+
+        self.xhs_notes_input = QLineEdit()
+        self.xhs_notes_input.setPlaceholderText("输入小红书搜索关键词，如：护肤、旅行、美食...")
+        self.xhs_notes_input.setFixedHeight(40)
+        il.addWidget(self.xhs_notes_input)
+
+        self.xhs_notes_btn = QPushButton("🔍 AI分析")
+        self.xhs_notes_btn.setFixedHeight(40)
+        self.xhs_notes_btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.primary}; color:{C.sidebar}; font-weight:bold; border:none; padding:8px 20px; font-size:13px; }}
+            QPushButton:hover {{ background:{C.primary_hover}; }}
+        """)
+        self.xhs_notes_btn.clicked.connect(self._on_xhs_notes_analysis)
+        il.addWidget(self.xhs_notes_btn)
+        lay.addWidget(input_frame)
+
+        self.xhs_notes_result = QTextEdit()
+        self.xhs_notes_result.setReadOnly(True)
+        self.xhs_notes_result.setStyleSheet(f"""
+            QTextEdit {{ background:{C.card}; color:{C.text}; border:1px solid {C.border}; border-radius:10px; padding:16px; font-size:13px; }}
+        """)
+        self.xhs_notes_result.setMarkdown(
+            "### 📝 小红书爆文分析\n\n"
+            "输入关键词后，AI 将分析：\n\n"
+            "- **爆文标题模式** — 高互动笔记的标题套路\n"
+            "- **内容趋势** — 当前热门的笔记类型和风格\n"
+            "- **封面策略** — 高点击率封面的设计要点\n"
+            "- **互动数据** — 点赞/收藏/评论的行业基准\n\n"
+            "> 💡 提示：输入具体的品类关键词获取更精准分析"
+        )
+        lay.addWidget(self.xhs_notes_result)
+
+        return w
+
+    def _on_xhs_notes_analysis(self):
+        keyword = self.xhs_notes_input.text().strip()
+        if not keyword:
+            QMessageBox.warning(self, "提示", "请输入搜索关键词")
+            return
+        self.status_info.setText(f"🔍 正在分析小红书: {keyword}...")
+        self._append_message("user", f"分析小红书笔记: {keyword}")
+        prompt = f"请对小红书平台上「{keyword}」相关的笔记进行深入分析，包括：1.爆文标题模式和套路 2.当前内容趋势和热门笔记类型 3.高互动笔记的共性特征 4.创作建议和选题方向。用Markdown格式。"
+        self._start_stream(prompt, keyword)
+
+    # ===== 小红书关键词追踪 =====
+
+    def _xhs_keywords_tab(self):
+        w = QWidget()
+        w.setStyleSheet(f"background:{C.bg};")
+        lay = QVBoxLayout(w)
+        lay.setSpacing(12)
+        lay.setContentsMargins(20, 16, 20, 16)
+
+        header = QLabel("🔑 小红书关键词趋势")
+        header.setStyleSheet(f"font-size:18px; font-weight:bold; color:{C.text}; border:none; background:transparent;")
+        lay.addWidget(header)
+
+        desc = QLabel("追踪小红书搜索关键词的热度趋势、竞争程度和内容供需分析。")
+        desc.setWordWrap(True)
+        desc.setStyleSheet(f"color:{C.text_dim}; font-size:12px; border:none; background:transparent;")
+        lay.addWidget(desc)
+
+        input_frame = QFrame()
+        input_frame.setStyleSheet(f"background:{C.card}; border:1px solid {C.border}; border-radius:10px;")
+        il = QHBoxLayout(input_frame)
+        il.setContentsMargins(16, 12, 16, 12)
+        il.setSpacing(10)
+
+        self.xhs_kw_input = QLineEdit()
+        self.xhs_kw_input.setPlaceholderText("输入要追踪的关键词，如：早C晚A、露营装备...")
+        self.xhs_kw_input.setFixedHeight(40)
+        il.addWidget(self.xhs_kw_input)
+
+        self.xhs_kw_btn = QPushButton("📈 追踪趋势")
+        self.xhs_kw_btn.setFixedHeight(40)
+        self.xhs_kw_btn.setStyleSheet(f"""
+            QPushButton {{ background:{C.primary}; color:{C.sidebar}; font-weight:bold; border:none; padding:8px 20px; font-size:13px; }}
+            QPushButton:hover {{ background:{C.primary_hover}; }}
+        """)
+        self.xhs_kw_btn.clicked.connect(self._on_xhs_keyword_track)
+        il.addWidget(self.xhs_kw_btn)
+        lay.addWidget(input_frame)
+
+        self.xhs_kw_result = QTextEdit()
+        self.xhs_kw_result.setReadOnly(True)
+        self.xhs_kw_result.setStyleSheet(f"""
+            QTextEdit {{ background:{C.card}; color:{C.text}; border:1px solid {C.border}; border-radius:10px; padding:16px; font-size:13px; }}
+        """)
+        self.xhs_kw_result.setMarkdown(
+            "### 🔑 关键词趋势追踪\n\n"
+            "输入关键词后，AI 将分析：\n\n"
+            "- **搜索热度** — 关键词的搜索量趋势\n"
+            "- **竞争程度** — 相关笔记数量和竞争分析\n"
+            "- **内容缺口** — 用户需求未被满足的方向\n"
+            "- **关联词推荐** — 长尾关键词和关联热词\n\n"
+            "> 💡 提示：可同时追踪多个关键词进行对比"
+        )
+        lay.addWidget(self.xhs_kw_result)
+
+        return w
+
+    def _on_xhs_keyword_track(self):
+        keyword = self.xhs_kw_input.text().strip()
+        if not keyword:
+            QMessageBox.warning(self, "提示", "请输入关键词")
+            return
+        self.status_info.setText(f"📈 正在追踪关键词: {keyword}...")
+        self._append_message("user", f"追踪小红书关键词: {keyword}")
+        prompt = f"请对小红书平台上「{keyword}」关键词进行趋势分析，包括：1.搜索热度评估 2.竞争程度分析 3.内容缺口和机会 4.长尾关键词和关联热词推荐 5.内容创作建议。用Markdown格式。"
+        self._start_stream(prompt, keyword)
+
     # ===== AI 调研 =====
 
     def _research_tab(self):
@@ -1894,7 +2447,7 @@ class MainWindow(QMainWindow):
     def _on_log(self, m, lv="info"): self._log(m, lv)
     def _on_progress(self, cur, tot, msg):
         self.progress_bar.setValue(cur)
-        self.status_bar.showMessage(f"🔄 {msg}")
+        self.status_info.setText(f"🔄 {msg}")
     def _on_login_status(self, ok):
         self._log("✅ 登录状态：已登录" if ok else "⏳ 等待扫码登录...", "success" if ok else "warning")
 
@@ -1907,7 +2460,7 @@ class MainWindow(QMainWindow):
         self.worker = None
         if tid:
             self.current_task_id = tid
-            self.status_bar.showMessage(f"✅ 采集完成 - 任务 #{tid}")
+            self.status_info.setText(f"✅ 采集完成 - 任务 #{tid}")
             self._log(f"🎉 采集任务 #{tid} 完成！", "success")
             self._load_task_history()
             self._refresh_data_view()
@@ -1915,7 +2468,7 @@ class MainWindow(QMainWindow):
             if QMessageBox.question(self, "采集完成", "<h3>🎉 采集完成！</h3><p>是否立即导出 Excel？</p>") == QMessageBox.StandardButton.Yes:
                 self._on_export_excel()
         else:
-            self.status_bar.showMessage("⚠ 采集中断或失败")
+            self.status_info.setText("⚠ 采集中断或失败")
 
     def _log(self, msg, lv="info"):
         cols = {"info": "#D4D4D4", "success": "#4EC9B0", "warning": "#CE9178", "error": "#F44747", "debug": "#808080"}
